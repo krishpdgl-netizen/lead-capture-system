@@ -75,7 +75,12 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
         resp.raise_for_status()
         data = resp.json()
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (requests.RequestException, KeyError, IndexError):
+    except (requests.RequestException, KeyError, IndexError) as exc:
+        # Logged (not raised) so a transcription failure never blocks the
+        # lead from being saved — but printed so you can see the real cause
+        # in Render's Logs tab.
+        error_body = getattr(getattr(exc, "response", None), "text", "")
+        print(f"[Gemini transcription failed] {exc} | response body: {error_body}")
         return ""
 
 
