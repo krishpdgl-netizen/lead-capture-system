@@ -2,10 +2,12 @@
 Event Lead Capture — FastAPI Backend
 -------------------------------------
 Receives lead submissions (form fields + audio + photo) from the frontend,
-sends the media files + row data to a Google Apps Script Web App (which
-saves them to Drive and Sheets under your own Google account, with no
-Cloud billing/service-account setup required), and triggers an n8n
-webhook to kick off the AI follow-up pipeline.
+transcribes the audio directly via the Gemini API (no separate n8n step
+needed), sends the media files + row data + transcript to a Google Apps
+Script Web App (which saves them to Drive and Sheets under your own
+Google account, with no Cloud billing/service-account setup required),
+and triggers an n8n webhook with the transcript already included so n8n
+only has to draft the quotation email and send it.
 
 Deploy target: Render (or any ASGI host).
 """
@@ -26,6 +28,8 @@ from fastapi.middleware.cors import CORSMiddleware
 APPS_SCRIPT_URL = os.getenv("APPS_SCRIPT_URL")            # Google Apps Script /exec URL
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")          # Drive folder to store audio/photos
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")             # n8n workflow trigger URL
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (aistudio.google.com/apikey)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 app = FastAPI(title="Event Lead Capture API")
@@ -36,6 +40,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
+    """Sends the raw audio bytes to Gemini and returns a transcript + brief
+    summary of what the lead said. Returns an empty string (rather than
+    raising) if transcription fails, so a Gemini hiccup never blocks the
+    lead from being saved."""
+    if not GEMINI_API_KEY:
+        return ""
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    prompt = (
+        "Transcribe this audio clip from a trade-show/event booth conversation. "
+        "Then, on a new line starting with 'Summary:', give a 2-3 sentence summary "
+        "of what the customer is interested in and any specific needs they mentioned."
+    )
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(audio_bytes).decode("utf-8")}},
+                    {"text": prompt},
+                ]
+            }
+        ]
+    }
+
+    try:
+        resp = requests.post(url, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (requests.RequestException, KeyError, IndexError):
+        return ""
 
 
 def save_lead_via_apps_script(
@@ -53,9 +94,11 @@ def save_lead_via_apps_script(
     photo_bytes: bytes,
     photo_filename: str,
     photo_mime_type: str,
+    transcript: str,
 ) -> dict:
     """Sends files + row data to the Apps Script Web App, which saves them
     to Drive and appends a row to Sheets under your own Google account."""
+    # (transcript is threaded through so it lands in its own Sheet column)
     if not APPS_SCRIPT_URL:
         raise HTTPException(
             status_code=500,
@@ -80,6 +123,7 @@ def save_lead_via_apps_script(
         "photo_base64": base64.b64encode(photo_bytes).decode("utf-8"),
         "photo_filename": photo_filename,
         "photo_mime_type": photo_mime_type,
+        "transcript": transcript,
     }
 
     try:
@@ -131,6 +175,12 @@ async def submit_lead(
     audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
     photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
 
+    # Transcribe directly here, while we still have the raw bytes in memory —
+    # this replaces the old plan of downloading the file again inside n8n.
+    transcript = transcribe_audio_with_gemini(
+        audio_bytes, audio.content_type or "audio/webm"
+    )
+
     result = save_lead_via_apps_script(
         lead_id=lead_id,
         timestamp=timestamp,
@@ -146,6 +196,7 @@ async def submit_lead(
         photo_bytes=photo_bytes,
         photo_filename=photo_filename,
         photo_mime_type=photo.content_type or "image/jpeg",
+        transcript=transcript,
     )
 
     audio_link = result["audio_url"]
@@ -163,7 +214,14 @@ async def submit_lead(
             "products": products,
             "audio_url": audio_link,
             "photo_url": photo_link,
+            "transcript": transcript,
         }
     )
 
-    return {"status": "success", "lead_id": lead_id, "audio_url": audio_link, "photo_url": photo_link}
+    return {
+        "status": "success",
+        "lead_id": lead_id,
+        "audio_url": audio_link,
+        "photo_url": photo_link,
+        "transcript": transcript,
+    }
