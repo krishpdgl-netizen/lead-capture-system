@@ -206,6 +206,9 @@
 
     <label for="products">Products Interested In</label>
     <input id="products" name="products" type="text" placeholder="e.g. Product A, Product B" />
+
+    <label for="quantity">Quantity</label>
+    <input id="quantity" name="quantity" type="number" min="1" step="1" placeholder="e.g. 1" value="1" />
   </form>
 
   <div class="card">
@@ -365,6 +368,7 @@
     fd.append("company", rec.company);
     fd.append("industry", rec.industry);
     fd.append("products", rec.products || "");
+    fd.append("quantity", rec.quantity || "1");
     fd.append("audio", rec.audioBlob, "conversation.webm");
     fd.append("photo", rec.photoBlob, "customer.jpg");
     const res = await fetch(`${API_BASE}/api/submit-lead`, { method: "POST", body: fd });
@@ -514,6 +518,7 @@
       company: document.getElementById("company").value,
       industry: document.getElementById("industry").value,
       products: document.getElementById("products").value,
+      quantity: document.getElementById("quantity").value || "1",
       audioBlob,
       photoBlob,
     };
