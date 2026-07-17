@@ -29,8 +29,22 @@ APPS_SCRIPT_URL = os.getenv("APPS_SCRIPT_URL")            # Google Apps Script /
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")          # Drive folder to store audio/photos
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")             # n8n workflow trigger URL
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (aistudio.google.com/apikey)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-3.5-flash,gemini-2.5-flash").split(",")
+
+def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
+    if not GEMINI_API_KEY:
+        return ""
+    for model in GEMINI_MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        try:
+            resp = requests.post(url, json=payload, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (requests.RequestException, KeyError, IndexError) as exc:
+            print(f"[Gemini transcription failed, model={model}] {exc}")
+            continue  # try next model in the list
+    return ""ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 app = FastAPI(title="Event Lead Capture API")
 
