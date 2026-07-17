@@ -156,29 +156,18 @@ def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
 # ----------------------------------------------------------------------------
 # Gemini: summarize audio AND match it against the catalog in one call
 # ----------------------------------------------------------------------------
-def _build_catalog_listing(catalog: list) -> str:
-    """Compact, token-cheap text listing of the catalog for the prompt.
-    Full descriptions are truncated — Gemini only needs enough to judge
-    relevance, not the full marketing copy."""
-    lines = []
-    for p in catalog:
-        desc = (p.get("description") or "")[:120]
-        lines.append(
-            f"{p.get('product_id')} | {p.get('name')} | {p.get('category')} | "
-            f"₹{p.get('price')} | keywords: {p.get('keywords')} | {desc}"
-        )
-    return "\n".join(lines)
+def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> dict:
+    """Sends the raw audio bytes to Gemini and asks for BOTH a short summary
+    and a list of concrete specs/requirements the customer actually
+    mentioned — NOT product matching. Product matching against the catalog
+    is done afterward with plain deterministic keyword matching (see
+    match_products_by_specs below), specifically to avoid the model
+    guessing/hallucinating product picks.
 
-
-def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list) -> dict:
-    """Sends the raw audio bytes + a compact catalog listing to Gemini and
-    asks for BOTH a short summary and a list of matched product_ids, as
-    structured JSON in a single call.
-
-    Returns {"summary": str, "matched_product_ids": list[str]}. Returns
-    {"summary": "", "matched_product_ids": []} if every model fails, so a
-    Gemini hiccup never blocks the lead from being saved."""
-    empty_result = {"summary": "", "matched_product_ids": []}
+    Returns {"summary": str, "specs": list[str]}. Returns
+    {"summary": "", "specs": []} if every model fails, so a Gemini hiccup
+    never blocks the lead from being saved."""
+    empty_result = {"summary": "", "specs": []}
     if not GEMINI_API_KEY:
         return empty_result
 
@@ -188,28 +177,18 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
     else:
         send_bytes, send_mime = audio_bytes, mime_type
 
-    catalog_listing = _build_catalog_listing(catalog)
-    catalog_block = (
-        f"Here is our product catalog (format: product_id | name | category | price | keywords | description):\n\n{catalog_listing}\n\n"
-        if catalog_listing else
-        "No product catalog is available right now — leave matched_product_ids empty.\n\n"
-    )
-
     prompt = (
         "Listen to this audio clip of a trade-show/event booth conversation.\n\n"
-        + catalog_block +
         "Respond with ONLY a JSON object (no markdown fences, no extra text) in this exact shape:\n"
         '{"summary": "2-3 sentence summary of what the customer is interested in, their company/use '
         'case, and any specific needs, quantities, or timelines mentioned. No verbatim transcript.", '
-        '"matched_product_ids": ["<product_id>", ...]}\n\n'
-        "For matched_product_ids, be conservative — this list is used to send the customer a follow-up "
-        "email with specific product photos and prices, so a wrong guess looks bad. Only include a "
-        "product_id if the conversation gives clear, specific evidence for it: the customer named the "
-        "product or something close to it, described a need that only that product category addresses, "
-        "or the rep explicitly mentioned it. General small talk, a vague 'looks interesting', or a "
-        "conversation that never gets into specifics is NOT evidence — return an empty list in that case. "
-        "Do not include a product just because it's broadly related to the customer's industry. When in "
-        "doubt, leave it out. Return at most 5 products, most relevant first."
+        '"specs": ["<short requirement phrase>", ...]}\n\n'
+        "For specs: list the concrete, specific things the customer actually mentioned wanting or "
+        "needing — technical specifications, dimensions, capacities, materials, colors, quantities, "
+        "budget/price range, timeline, or specific features. Each item should be a short phrase (2-5 "
+        "words) taken from what was actually said. Do NOT infer, guess, or pad the list with anything "
+        "not explicitly discussed. If the conversation was general small talk with no specific "
+        "requirements mentioned, return an empty list."
     )
 
     payload = {
@@ -223,19 +202,17 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
         ],
         "generationConfig": {
             "responseMimeType": "application/json",
-            # Matching should be conservative and repeatable, not creative —
-            # a low temperature makes the model far less likely to guess at
-            # a plausible-sounding but unsupported product match.
+            # Extraction should be conservative and repeatable, not
+            # creative — a low temperature makes the model far less likely
+            # to pad the specs list with plausible-sounding invented items.
             "temperature": 0.1,
             # Newer Flash models "think" before answering, and those
             # thinking tokens are deducted from the SAME budget as the
             # actual output — with no cap set, the model can burn most of
             # it thinking and get cut off mid-JSON before finishing the
-            # real response (exactly what produced the "Extra data" /
-            # "Expecting ',' delimiter" JSON parse errors). Disabling
-            # thinking avoids that outright; the explicit maxOutputTokens
-            # is a second safety net in case thinking can't be fully
-            # disabled for a given model.
+            # real response. Disabling thinking avoids that outright; the
+            # explicit maxOutputTokens is a second safety net in case
+            # thinking can't be fully disabled for a given model.
             "thinkingConfig": {"thinkingBudget": 0},
             "maxOutputTokens": 2048,
         },
@@ -258,19 +235,16 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
             try:
                 parsed = json.loads(raw_text)
             except ValueError as parse_exc:
-                # Print the actual text that failed to parse (and why the
-                # model stopped generating) instead of swallowing it —
-                # this is what a truncated-JSON failure looks like.
                 print(f"[Gemini analysis JSON parse failed, model={model}, finishReason={finish_reason}] "
                       f"{parse_exc} | raw text: {raw_text!r}")
                 continue
             summary = str(parsed.get("summary", "")).strip()
-            matched_ids = parsed.get("matched_product_ids", [])
-            if not isinstance(matched_ids, list):
-                matched_ids = []
-            matched_ids = [str(pid).strip() for pid in matched_ids if str(pid).strip()]
-            print(f"[Gemini analysis succeeded, model={model}, summary_len={len(summary)}, matches={matched_ids}]")
-            return {"summary": summary, "matched_product_ids": matched_ids}
+            specs = parsed.get("specs", [])
+            if not isinstance(specs, list):
+                specs = []
+            specs = [str(s).strip() for s in specs if str(s).strip()]
+            print(f"[Gemini analysis succeeded, model={model}, summary_len={len(summary)}, specs={specs}]")
+            return {"summary": summary, "specs": specs}
         except (requests.RequestException, KeyError, IndexError) as exc:
             error_body = getattr(getattr(exc, "response", None), "text", "")
             print(f"[Gemini analysis failed, model={model}] {exc} | response body: {error_body}")
@@ -279,24 +253,47 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
     return empty_result
 
 
-def resolve_matched_products(matched_product_ids: list, catalog: list) -> list:
-    """Looks up full product details (name, price, image_url) for each
-    matched product_id from the already-fetched catalog — never trusts
-    Gemini to echo back accurate prices/URLs itself, only IDs."""
-    catalog_by_id = {p.get("product_id"): p for p in catalog}
-    resolved = []
-    for pid in matched_product_ids:
-        product = catalog_by_id.get(pid)
-        if product:
-            resolved.append({
-                "product_id": product.get("product_id"),
-                "name": product.get("name"),
-                "price": product.get("price"),
-                "image_url": product.get("image_url"),
-            })
-        else:
-            print(f"[Matched product_id '{pid}' not found in catalog — skipping]")
-    return resolved
+def match_products_by_specs(specs: list, catalog: list, max_matches: int = 5) -> list:
+    """Deterministic, non-AI matching: for each extracted spec phrase,
+    checks whether it (or a meaningful word from it) appears in a
+    product's name/category/keywords/description. Products are scored by
+    how many distinct specs matched and returned highest-first. No
+    guessing — a product only appears here if actual text overlap exists,
+    which is what keeps this step hallucination-free."""
+    if not specs or not catalog:
+        return []
+
+    scored = []
+    for product in catalog:
+        haystack = " ".join(
+            str(product.get(field, "")) for field in ("name", "category", "keywords", "description")
+        ).lower()
+        matched_specs = []
+        for spec in specs:
+            spec_l = spec.lower().strip()
+            if not spec_l:
+                continue
+            if spec_l in haystack:
+                matched_specs.append(spec)
+                continue
+            # Fall back to individual significant words in the spec phrase
+            # (skips short filler words like "the", "for", "and")
+            words = [w for w in re.findall(r"[a-z0-9]+", spec_l) if len(w) >= 3]
+            if words and any(w in haystack for w in words):
+                matched_specs.append(spec)
+        if matched_specs:
+            scored.append((len(matched_specs), product))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    results = []
+    for _, product in scored[:max_matches]:
+        results.append({
+            "product_id": product.get("product_id"),
+            "name": product.get("name"),
+            "price": product.get("price"),
+            "image_url": product.get("image_url"),
+        })
+    return results
 
 
 # ----------------------------------------------------------------------------
