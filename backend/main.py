@@ -171,8 +171,33 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
             resp = requests.post(url, json=payload, timeout=60)
             resp.raise_for_status()
             data = resp.json()
-            summary = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            print(f"[Gemini summary succeeded, model={model}]")
+
+            candidates = data.get("candidates", [])
+            if not candidates:
+                # Request succeeded (200 OK) but Gemini returned zero
+                # candidates — usually a safety block or an empty/near-silent
+                # clip. Log the full response so this is diagnosable instead
+                # of just looking like a blank transcript again.
+                print(f"[Gemini summary — no candidates returned, model={model}] full response: {data}")
+                return "(No summary generated — audio may have been silent or too short)"
+
+            finish_reason = candidates[0].get("finishReason", "")
+            summary = (
+                candidates[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+                .strip()
+            )
+
+            if not summary:
+                # Call succeeded and returned a candidate, but with no text —
+                # log finishReason (e.g. SAFETY, MAX_TOKENS) so the cause is
+                # visible rather than looking identical to a total failure.
+                print(f"[Gemini summary — empty text, model={model}, finishReason={finish_reason}] full response: {data}")
+                return "(No summary generated — audio may have been silent or too short)"
+
+            print(f"[Gemini summary succeeded, model={model}, length={len(summary)}]")
             return summary
         except (requests.RequestException, KeyError, IndexError) as exc:
             # Logged (not raised) so a summarization failure never blocks the
@@ -182,7 +207,7 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
             print(f"[Gemini summary failed, model={model}] {exc} | response body: {error_body}")
             continue
 
-    return ""
+    return "(Summary generation failed — check Render logs)"
 
 
 def save_lead_via_apps_script(
@@ -289,7 +314,11 @@ async def submit_lead(
     photo: UploadFile = File(...),
 ):
     lead_id = str(uuid.uuid4())[:8]
-    timestamp = datetime.datetime.utcnow().isoformat()
+    # India Standard Time is a fixed UTC+5:30 offset with no daylight saving,
+    # so a plain timedelta add is reliable here without needing pytz/zoneinfo
+    # tzdata bundled in the deploy.
+    IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
+    timestamp = (datetime.datetime.now(datetime.timezone.utc) + IST_OFFSET).strftime("%Y-%m-%d %H:%M:%S IST")
 
     audio_bytes = await audio.read()
     photo_bytes = await photo.read()
