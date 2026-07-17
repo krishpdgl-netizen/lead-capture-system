@@ -52,7 +52,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (ais
 # model, so it doesn't need manual bumping every time a pinned version gets
 # deprecated. A second model is kept as a fallback in case the alias itself
 # has a transient issue. Override via GEMINI_MODELS (comma-separated).
-GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.5-flash-lite").split(",")
+GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-3.1-flash-lite").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 # How long to cache the product catalog in memory before re-fetching from
 # the Sheet, in seconds. The catalog changes rarely, so there's no need to
@@ -218,6 +218,17 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
         ],
         "generationConfig": {
             "responseMimeType": "application/json",
+            # Newer Flash models "think" before answering, and those
+            # thinking tokens are deducted from the SAME budget as the
+            # actual output — with no cap set, the model can burn most of
+            # it thinking and get cut off mid-JSON before finishing the
+            # real response (exactly what produced the "Extra data" /
+            # "Expecting ',' delimiter" JSON parse errors). Disabling
+            # thinking avoids that outright; the explicit maxOutputTokens
+            # is a second safety net in case thinking can't be fully
+            # disabled for a given model.
+            "thinkingConfig": {"thinkingBudget": 0},
+            "maxOutputTokens": 2048,
         },
     }
 
@@ -233,8 +244,17 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
             resp = requests.post(url, json=payload, timeout=60)
             resp.raise_for_status()
             data = resp.json()
+            finish_reason = data["candidates"][0].get("finishReason", "")
             raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            parsed = json.loads(raw_text)
+            try:
+                parsed = json.loads(raw_text)
+            except ValueError as parse_exc:
+                # Print the actual text that failed to parse (and why the
+                # model stopped generating) instead of swallowing it —
+                # this is what a truncated-JSON failure looks like.
+                print(f"[Gemini analysis JSON parse failed, model={model}, finishReason={finish_reason}] "
+                      f"{parse_exc} | raw text: {raw_text!r}")
+                continue
             summary = str(parsed.get("summary", "")).strip()
             matched_ids = parsed.get("matched_product_ids", [])
             if not isinstance(matched_ids, list):
@@ -242,7 +262,7 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
             matched_ids = [str(pid).strip() for pid in matched_ids if str(pid).strip()]
             print(f"[Gemini analysis succeeded, model={model}, summary_len={len(summary)}, matches={matched_ids}]")
             return {"summary": summary, "matched_product_ids": matched_ids}
-        except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
+        except (requests.RequestException, KeyError, IndexError) as exc:
             error_body = getattr(getattr(exc, "response", None), "text", "")
             print(f"[Gemini analysis failed, model={model}] {exc} | response body: {error_body}")
             continue
