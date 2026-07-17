@@ -312,8 +312,12 @@ async def submit_lead(
     products: Optional[str] = Form(""),
     audio: UploadFile = File(...),
     photo: UploadFile = File(...),
+    client_lead_id: Optional[str] = Form(None),
 ):
-    lead_id = str(uuid.uuid4())[:8]
+    # If the frontend generated its own ID (used by the offline queue so a
+    # lead captured with no connection keeps the same ID whenever it later
+    # syncs), use that instead of minting a new one here.
+    lead_id = (client_lead_id or str(uuid.uuid4()))[:8]
     # India Standard Time is a fixed UTC+5:30 offset with no daylight saving,
     # so a plain timedelta add is reliable here without needing pytz/zoneinfo
     # tzdata bundled in the deploy.
