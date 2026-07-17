@@ -44,7 +44,9 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
         except (requests.RequestException, KeyError, IndexError) as exc:
             print(f"[Gemini transcription failed, model={model}] {exc}")
             continue  # try next model in the list
-    return ""ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+    return ""
+
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 app = FastAPI(title="Event Lead Capture API")
 
