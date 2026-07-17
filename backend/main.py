@@ -213,6 +213,7 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
 def save_lead_via_apps_script(
     lead_id: str,
     timestamp: str,
+    rep_name: str,
     name: str,
     email: str,
     phone: str,
@@ -242,6 +243,7 @@ def save_lead_via_apps_script(
         "gdrive_folder_id": GDRIVE_FOLDER_ID,
         "lead_id": lead_id,
         "timestamp": timestamp,
+        "rep_name": rep_name,
         "name": name,
         "email": email,
         "phone": phone,
@@ -304,6 +306,7 @@ def diagnostics():
 
 @app.post("/api/submit-lead")
 async def submit_lead(
+    rep_name: str = Form(...),
     name: str = Form(...),
     email: str = Form(...),
     phone: str = Form(...),
@@ -342,6 +345,7 @@ async def submit_lead(
     result = save_lead_via_apps_script(
         lead_id=lead_id,
         timestamp=timestamp,
+        rep_name=rep_name,
         name=name,
         email=email,
         phone=phone,
@@ -364,6 +368,7 @@ async def submit_lead(
         {
             "lead_id": lead_id,
             "timestamp": timestamp,
+            "rep_name": rep_name,
             "name": name,
             "email": email,
             "phone": phone,
