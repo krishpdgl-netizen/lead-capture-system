@@ -14,10 +14,13 @@ Deploy target: Render (or any ASGI host).
 
 import base64
 import os
+import subprocess
+import tempfile
 import uuid
 import datetime
 from typing import Optional
 
+import imageio_ffmpeg
 import requests
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +52,46 @@ app.add_middleware(
 )
 
 
+def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
+    """Converts arbitrary audio bytes to WAV using a bundled static ffmpeg
+    binary (via imageio-ffmpeg — no system/apt install needed on Render).
+
+    This exists because the browser's MediaRecorder API (used on the
+    frontend) produces audio/webm (Opus codec), but Gemini's generateContent
+    API only officially supports WAV, MP3, AIFF, AAC, OGG Vorbis, and FLAC.
+    Sending audio/webm as-is reliably gets rejected with an "Unsupported MIME
+    type" error, which the transcription function swallows into an empty
+    string — so it looks identical to a transcription failure. Converting to
+    WAV first avoids that entirely.
+
+    Returns None (rather than raising) on failure, so a conversion hiccup
+    falls back to attempting the original bytes rather than blocking the
+    lead from being saved."""
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    src_path = dst_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as src:
+            src.write(audio_bytes)
+            src_path = src.name
+        dst_path = src_path + ".wav"
+
+        subprocess.run(
+            [ffmpeg_path, "-y", "-i", src_path, "-ar", "16000", "-ac", "1", dst_path],
+            check=True, capture_output=True, timeout=30,
+        )
+        with open(dst_path, "rb") as f:
+            return f.read()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        stderr = getattr(exc, "stderr", b"")
+        stderr = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else stderr
+        print(f"[Audio conversion to WAV failed] {exc} | stderr: {stderr}")
+        return None
+    finally:
+        for path in (src_path, dst_path):
+            if path and os.path.exists(path):
+                os.remove(path)
+
+
 def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     """Sends the raw audio bytes to Gemini and returns a transcript + brief
     summary of what the lead said. Tries each model in GEMINI_MODELS in order,
@@ -57,6 +100,16 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     lead from being saved."""
     if not GEMINI_API_KEY:
         return ""
+
+    # Convert to a Gemini-supported format first (see _convert_to_wav above).
+    # If conversion fails for any reason, fall back to sending the original
+    # bytes/mime type — it's unlikely to succeed for webm, but it's a better
+    # fallback than giving up before even trying.
+    wav_bytes = _convert_to_wav(audio_bytes)
+    if wav_bytes is not None:
+        send_bytes, send_mime = wav_bytes, "audio/wav"
+    else:
+        send_bytes, send_mime = audio_bytes, mime_type
 
     prompt = (
         "Transcribe this audio clip from a trade-show/event booth conversation. "
@@ -67,7 +120,7 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
         "contents": [
             {
                 "parts": [
-                    {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(audio_bytes).decode("utf-8")}},
+                    {"inline_data": {"mime_type": send_mime, "data": base64.b64encode(send_bytes).decode("utf-8")}},
                     {"text": prompt},
                 ]
             }
