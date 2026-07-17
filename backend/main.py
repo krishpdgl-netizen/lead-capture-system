@@ -202,9 +202,14 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
         '{"summary": "2-3 sentence summary of what the customer is interested in, their company/use '
         'case, and any specific needs, quantities, or timelines mentioned. No verbatim transcript.", '
         '"matched_product_ids": ["<product_id>", ...]}\n\n'
-        "For matched_product_ids: only include product_ids from the catalog above that genuinely match "
-        "what was discussed — infer from context and keywords, don't just string-match. Include at most "
-        "5 products, ordered by relevance. If nothing in the catalog clearly matches, return an empty list."
+        "For matched_product_ids, be conservative — this list is used to send the customer a follow-up "
+        "email with specific product photos and prices, so a wrong guess looks bad. Only include a "
+        "product_id if the conversation gives clear, specific evidence for it: the customer named the "
+        "product or something close to it, described a need that only that product category addresses, "
+        "or the rep explicitly mentioned it. General small talk, a vague 'looks interesting', or a "
+        "conversation that never gets into specifics is NOT evidence — return an empty list in that case. "
+        "Do not include a product just because it's broadly related to the customer's industry. When in "
+        "doubt, leave it out. Return at most 5 products, most relevant first."
     )
 
     payload = {
@@ -218,6 +223,10 @@ def analyze_audio_with_gemini(audio_bytes: bytes, mime_type: str, catalog: list)
         ],
         "generationConfig": {
             "responseMimeType": "application/json",
+            # Matching should be conservative and repeatable, not creative —
+            # a low temperature makes the model far less likely to guess at
+            # a plausible-sounding but unsupported product match.
+            "temperature": 0.1,
             # Newer Flash models "think" before answering, and those
             # thinking tokens are deducted from the SAME budget as the
             # actual output — with no cap set, the model can burn most of
