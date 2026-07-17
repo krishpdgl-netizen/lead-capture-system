@@ -29,8 +29,14 @@ APPS_SCRIPT_URL = os.getenv("APPS_SCRIPT_URL")            # Google Apps Script /
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")          # Drive folder to store audio/photos
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")             # n8n workflow trigger URL
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (aistudio.google.com/apikey)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
-
+# Pinned model versions (gemini-2.0-flash, gemini-2.5-flash-lite, gemini-2.5-flash,
+# etc.) keep getting closed off to new API keys as Google rotates its lineup.
+# "gemini-flash-latest" is Google's own auto-updating alias for the current
+# recommended Flash model, so it's the safer default — it won't need to be
+# manually bumped every time a pinned version gets deprecated. A second,
+# older model is kept as a fallback in case the alias itself ever has a
+# transient issue. Override via GEMINI_MODELS (comma-separated) if needed.
+GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.5-flash").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 app = FastAPI(title="Event Lead Capture API")
@@ -45,16 +51,13 @@ app.add_middleware(
 
 def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     """Sends the raw audio bytes to Gemini and returns a transcript + brief
-    summary of what the lead said. Returns an empty string (rather than
-    raising) if transcription fails, so a Gemini hiccup never blocks the
+    summary of what the lead said. Tries each model in GEMINI_MODELS in order,
+    falling through to the next on failure. Returns an empty string (rather
+    than raising) if every model fails, so a Gemini hiccup never blocks the
     lead from being saved."""
     if not GEMINI_API_KEY:
         return ""
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    )
     prompt = (
         "Transcribe this audio clip from a trade-show/event booth conversation. "
         "Then, on a new line starting with 'Summary:', give a 2-3 sentence summary "
@@ -71,18 +74,28 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
         ]
     }
 
-    try:
-        resp = requests.post(url, json=payload, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (requests.RequestException, KeyError, IndexError) as exc:
-        # Logged (not raised) so a transcription failure never blocks the
-        # lead from being saved — but printed so you can see the real cause
-        # in Render's Logs tab.
-        error_body = getattr(getattr(exc, "response", None), "text", "")
-        print(f"[Gemini transcription failed] {exc} | response body: {error_body}")
-        return ""
+    for model in GEMINI_MODELS:
+        model = model.strip()
+        if not model:
+            continue
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={GEMINI_API_KEY}"
+        )
+        try:
+            resp = requests.post(url, json=payload, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (requests.RequestException, KeyError, IndexError) as exc:
+            # Logged (not raised) so a transcription failure never blocks the
+            # lead from being saved — but printed so you can see the real
+            # cause in Render's Logs tab. Falls through to the next model.
+            error_body = getattr(getattr(exc, "response", None), "text", "")
+            print(f"[Gemini transcription failed, model={model}] {exc} | response body: {error_body}")
+            continue
+
+    return ""
 
 
 def save_lead_via_apps_script(
