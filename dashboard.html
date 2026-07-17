@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Event Lead Capture</title>
+<style>
+  :root {
+    --navy: #1B2A4A;
+    --accent: #3E7BFA;
+    --ice: #EAF0FB;
+    --gray: #5B6472;
+    --green: #2FA36B;
+    --red: #D65A56;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--ice);
+    color: var(--navy);
+  }
+  .wrap {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+  }
+  header {
+    text-align: center;
+    padding: 20px 0 10px;
+  }
+  header h1 { font-size: 22px; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--gray); font-size: 13px; }
+
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    margin-top: 18px;
+    box-shadow: 0 4px 16px rgba(27,42,74,0.08);
+  }
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gray);
+    margin: 14px 0 6px;
+  }
+  label:first-child { margin-top: 0; }
+  input, select {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #DCE6F7;
+    font-size: 15px;
+    background: #fff;
+    color: var(--navy);
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); }
+
+  .btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  button {
+    border: none;
+    border-radius: 24px;
+    padding: 13px 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: #fff;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-record { background: var(--accent); }
+  .btn-stop { background: var(--navy); }
+  .btn-photo { background: var(--navy); grid-column: span 2; }
+  .btn-submit { background: var(--green); grid-column: span 2; padding: 15px; font-size: 15px; }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--gray);
+  }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #C7D3EA;
+  }
+  .dot.active { background: var(--red); animation: pulse 1s infinite; }
+  .dot.done { background: var(--green); }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+
+  video, img.preview {
+    width: 100%;
+    border-radius: 10px;
+    margin-top: 10px;
+    display: none;
+  }
+
+  #toast {
+    position: fixed;
+    left: 50%; bottom: 24px;
+    transform: translateX(-50%);
+    background: var(--navy);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    display: none;
+    z-index: 50;
+    max-width: 90%;
+    text-align: center;
+  }
+  #toast.error { background: var(--red); }
+  #toast.success { background: var(--green); }
+
+  .footer-note {
+    text-align: center;
+    font-size: 11px;
+    color: var(--gray);
+    margin-top: 20px;
+  }
+
+  .sync-banner {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: #FFF6E5;
+    border: 1px solid #F3D99A;
+    color: #8A6100;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    margin-top: 14px;
+  }
+  .sync-banner.show { display: flex; }
+  .sync-banner button {
+    background: #8A6100;
+    color: #fff;
+    border-radius: 16px;
+    padding: 6px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block; margin-right: 6px;
+    background: var(--green);
+  }
+  .conn-dot.offline { background: var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Event Lead Capture</h1>
+    <p>Capture the conversation. Let AI handle the rest.</p>
+    <p style="font-size:11px; margin-top:6px;">
+      <span class="conn-dot" id="connDot"></span><span id="connLabel">Online</span>
+    </p>
+    <p style="font-size:11.5px; margin-top:8px; color:var(--gray);">
+      Rep: <strong id="repNameDisplay">-</strong>
+      &nbsp;·&nbsp;
+      <a href="#" id="switchUserLink" style="color:var(--accent); text-decoration:none;">Not you?</a>
+    </p>
+  </header>
+
+  <div class="sync-banner" id="syncBanner">
+    <span id="syncBannerText">0 leads waiting to sync</span>
+    <button type="button" id="btnSyncNow">Sync now</button>
+  </div>
+
+  <form class="card" id="leadForm">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" required placeholder="Customer name" />
+
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required placeholder="customer@company.com" />
+
+    <label for="phone">Phone Number</label>
+    <input id="phone" name="phone" type="tel" required placeholder="+91 90000 00000" />
+
+    <label for="company">Company</label>
+    <input id="company" name="company" type="text" required placeholder="Company name" />
+
+    <label for="industry">Industry</label>
+    <select id="industry" name="industry" required>
+      <option value="" disabled selected>Select industry</option>
+      <option>Manufacturing</option>
+      <option>Retail</option>
+      <option>Healthcare</option>
+      <option>IT & Software</option>
+      <option>Education</option>
+      <option>Other</option>
+    </select>
+
+    <label for="products">Products Interested In</label>
+    <input id="products" name="products" type="text" placeholder="e.g. Product A, Product B" />
+  </form>
+
+  <div class="card">
+    <label style="margin-top:0;">Conversation Recording</label>
+    <div class="btn-row">
+      <button type="button" class="btn-record" id="btnRecord">&#127908; Start Recording</button>
+      <button type="button" class="btn-stop" id="btnStop" disabled>&#9209; Stop Recording</button>
+    </div>
+    <div class="status-row">
+      <span class="dot" id="audioDot"></span>
+      <span id="audioStatus">No recording yet</span>
+    </div>
+    <audio id="audioPreview" controls style="width:100%; margin-top:10px; display:none;"></audio>
+
+    <label>Customer Photo</label>
+    <div class="btn-row">
+      <button type="button" class="btn-photo" id="btnPhoto">&#128247; Capture Photo</button>
+    </div>
+    <video id="video" autoplay playsinline></video>
+    <img id="photoPreview" class="preview" alt="Captured photo" />
+    <div class="status-row">
+      <span class="dot" id="photoDot"></span>
+      <span id="photoStatus">No photo yet</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <button type="button" class="btn-submit" id="btnSubmit" style="width:100%;">&#9989; Submit</button>
+    <div class="status-row" id="submitStatusRow" style="display:none;">
+      <span class="dot" id="submitDot"></span>
+      <span id="submitStatus">Uploading...</span>
+    </div>
+  </div>
+
+  <p class="footer-note">Your data is uploaded securely and processed automatically. No further action needed.</p>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ----- CONFIG -----
+  // Point this at your deployed FastAPI backend (Render URL), e.g.
+  // const API_BASE = "https://your-app.onrender.com";
+  const API_BASE = window.LEAD_CAPTURE_API_BASE || "https://lead-capture-system-xxfp.onrender.com";
+
+  // ---------- REP LOGIN GUARD ----------
+  // This page assumes a rep name was already captured on the login page
+  // (index.html) and stored in localStorage. If it's missing — e.g. someone
+  // bookmarked this page directly, or storage was cleared — bounce back to
+  // login rather than letting a lead get submitted with no rep attached.
+  const REP_NAME_KEY = "lead_capture_rep_name";
+  const repName = localStorage.getItem(REP_NAME_KEY);
+  if (!repName) {
+    window.location.href = "index.html";
+  }
+  document.getElementById("repNameDisplay").textContent = repName || "-";
+  document.getElementById("switchUserLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    localStorage.removeItem(REP_NAME_KEY);
+    window.location.href = "index.html";
+  });
+
+  const toast = (msg, type = "") => {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = type;
+    el.style.display = "block";
+    clearTimeout(window.__toastTimer);
+    window.__toastTimer = setTimeout(() => (el.style.display = "none"), 3500);
+  };
+
+  // ---------- OFFLINE QUEUE (IndexedDB) ----------
+  // Stores full lead submissions (fields + audio/photo blobs) locally
+  // whenever the backend can't be reached, then flushes them automatically
+  // once the connection returns. This means a wifi drop at the booth never
+  // loses a captured lead — it just waits on the device until it can send.
+  const DB_NAME = "lead_capture_offline";
+  const STORE_NAME = "pending_leads";
+
+  function openQueueDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: "id" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function queueAdd(record) {
+    const db = await openQueueDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function queueGetAll() {
+    const db = await openQueueDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const req = tx.objectStore(STORE_NAME).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function queueDelete(id) {
+    const db = await openQueueDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function makeId() {
+    return (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  }
+
+  // ---------- CONNECTION STATUS ----------
+  const connDot = document.getElementById("connDot");
+  const connLabel = document.getElementById("connLabel");
+  const syncBanner = document.getElementById("syncBanner");
+  const syncBannerText = document.getElementById("syncBannerText");
+  const btnSyncNow = document.getElementById("btnSyncNow");
+
+  function setConnUI(isOnline) {
+    connDot.className = "conn-dot" + (isOnline ? "" : " offline");
+    connLabel.textContent = isOnline ? "Online" : "Offline — leads are saved on this device";
+  }
+
+  async function refreshBanner() {
+    const pending = await queueGetAll().catch(() => []);
+    if (pending.length > 0) {
+      syncBannerText.textContent = `${pending.length} lead${pending.length > 1 ? "s" : ""} waiting to sync`;
+      syncBanner.classList.add("show");
+    } else {
+      syncBanner.classList.remove("show");
+    }
+  }
+
+  async function sendRecordToBackend(rec) {
+    const fd = new FormData();
+    fd.append("client_lead_id", rec.id);
+    fd.append("rep_name", rec.repName || "");
+    fd.append("name", rec.name);
+    fd.append("email", rec.email);
+    fd.append("phone", rec.phone);
+    fd.append("company", rec.company);
+    fd.append("industry", rec.industry);
+    fd.append("products", rec.products || "");
+    fd.append("audio", rec.audioBlob, "conversation.webm");
+    fd.append("photo", rec.photoBlob, "customer.jpg");
+    const res = await fetch(`${API_BASE}/api/submit-lead`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  let syncing = false;
+  async function trySyncQueue({ silent = true } = {}) {
+    if (syncing) return;
+    if (!navigator.onLine) { await refreshBanner(); return; }
+    syncing = true;
+    try {
+      const pending = await queueGetAll();
+      let sentCount = 0;
+      for (const rec of pending) {
+        try {
+          await sendRecordToBackend(rec);
+          await queueDelete(rec.id);
+          sentCount++;
+        } catch (err) {
+          // Stop on first failure — likely still offline or backend down;
+          // remaining items stay queued and we'll retry on the next pass.
+          break;
+        }
+      }
+      if (sentCount > 0 && !silent) {
+        toast(`${sentCount} queued lead${sentCount > 1 ? "s" : ""} synced successfully.`, "success");
+      }
+    } finally {
+      syncing = false;
+      await refreshBanner();
+    }
+  }
+
+  window.addEventListener("online", () => { setConnUI(true); trySyncQueue({ silent: false }); });
+  window.addEventListener("offline", () => setConnUI(false));
+  btnSyncNow.addEventListener("click", () => trySyncQueue({ silent: false }));
+  setInterval(() => trySyncQueue({ silent: true }), 20000);
+
+  setConnUI(navigator.onLine);
+  refreshBanner();
+  if (navigator.onLine) trySyncQueue({ silent: true });
+
+  // ---------- AUDIO RECORDING ----------
+  let mediaRecorder, audioChunks = [], audioBlob = null;
+  const btnRecord = document.getElementById("btnRecord");
+  const btnStop = document.getElementById("btnStop");
+  const audioDot = document.getElementById("audioDot");
+  const audioStatus = document.getElementById("audioStatus");
+  const audioPreview = document.getElementById("audioPreview");
+
+  btnRecord.addEventListener("click", async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+      mediaRecorder.onstop = () => {
+        audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+        audioPreview.src = URL.createObjectURL(audioBlob);
+        audioPreview.style.display = "block";
+        audioDot.className = "dot done";
+        audioStatus.textContent = "Recording captured";
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      mediaRecorder.start();
+      audioDot.className = "dot active";
+      audioStatus.textContent = "Recording in progress...";
+      btnRecord.disabled = true;
+      btnStop.disabled = false;
+    } catch (err) {
+      toast("Microphone access denied or unavailable.", "error");
+    }
+  });
+
+  btnStop.addEventListener("click", () => {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    btnRecord.disabled = false;
+    btnStop.disabled = true;
+  });
+
+  // ---------- PHOTO CAPTURE ----------
+  let photoBlob = null;
+  const btnPhoto = document.getElementById("btnPhoto");
+  const video = document.getElementById("video");
+  const photoPreview = document.getElementById("photoPreview");
+  const photoDot = document.getElementById("photoDot");
+  const photoStatus = document.getElementById("photoStatus");
+  let cameraStream = null;
+  let cameraArmed = false;
+
+  btnPhoto.addEventListener("click", async () => {
+    if (!cameraArmed) {
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        video.srcObject = cameraStream;
+        video.style.display = "block";
+        photoPreview.style.display = "none";
+        cameraArmed = true;
+        btnPhoto.textContent = "\u{1F4F7} Snap Now";
+      } catch (err) {
+        toast("Camera access denied or unavailable.", "error");
+      }
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob((blob) => {
+      photoBlob = blob;
+      photoPreview.src = URL.createObjectURL(blob);
+      photoPreview.style.display = "block";
+      video.style.display = "none";
+      photoDot.className = "dot done";
+      photoStatus.textContent = "Photo captured";
+      cameraStream.getTracks().forEach((t) => t.stop());
+      cameraArmed = false;
+      btnPhoto.textContent = "\u{1F4F7} Capture Photo";
+    }, "image/jpeg", 0.9);
+  });
+
+  // ---------- SUBMIT ----------
+  const btnSubmit = document.getElementById("btnSubmit");
+  const submitStatusRow = document.getElementById("submitStatusRow");
+  const submitDot = document.getElementById("submitDot");
+  const submitStatus = document.getElementById("submitStatus");
+  const form = document.getElementById("leadForm");
+
+  btnSubmit.addEventListener("click", async () => {
+    if (!form.reportValidity()) return;
+    if (!audioBlob) { toast("Please record the conversation before submitting.", "error"); return; }
+    if (!photoBlob) { toast("Please capture a customer photo before submitting.", "error"); return; }
+
+    btnSubmit.disabled = true;
+    submitStatusRow.style.display = "flex";
+    submitDot.className = "dot active";
+    submitStatus.textContent = "Uploading lead data...";
+
+    const record = {
+      id: makeId(),
+      repName: repName || "",
+      name: document.getElementById("name").value,
+      email: document.getElementById("email").value,
+      phone: document.getElementById("phone").value,
+      company: document.getElementById("company").value,
+      industry: document.getElementById("industry").value,
+      products: document.getElementById("products").value,
+      audioBlob,
+      photoBlob,
+    };
+
+    // If we're already known to be offline, skip straight to queuing —
+    // no point waiting on a fetch that can't possibly succeed.
+    if (!navigator.onLine) {
+      await queueAdd(record);
+      await refreshBanner();
+      submitDot.className = "dot done";
+      submitStatus.textContent = "Saved offline — will send when back online";
+      toast("No connection — lead saved on this device and will sync automatically.", "success");
+      setTimeout(() => window.location.reload(), 2200);
+      return;
+    }
+
+    try {
+      await sendRecordToBackend(record);
+      submitDot.className = "dot done";
+      submitStatus.textContent = "Submitted successfully";
+      toast("Lead captured! Follow-up is on its way.", "success");
+      setTimeout(() => window.location.reload(), 2200);
+    } catch (err) {
+      // Fetch failed (network drop, backend unreachable, timeout, etc.) —
+      // don't lose the lead, queue it locally instead of just erroring out.
+      await queueAdd(record);
+      await refreshBanner();
+      submitDot.className = "dot done";
+      submitStatus.textContent = "Saved offline — will send when back online";
+      toast("Couldn't reach the server — lead saved on this device and will sync automatically.", "success");
+      setTimeout(() => window.location.reload(), 2200);
+    }
+  });
+</script>
+</body>
+</html>
