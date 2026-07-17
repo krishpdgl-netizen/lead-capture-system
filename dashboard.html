@@ -492,6 +492,38 @@
     }, "image/jpeg", 0.9);
   });
 
+  // ---------- RESET (in-place, no navigation) ----------
+  // This replaces window.location.reload(). A full reload is a network
+  // navigation — with no service worker caching this page, reloading while
+  // offline fails and the browser shows its native offline page (the dino
+  // game) instead of the app, blocking any further submissions until back
+  // online. Resetting state in JS works identically online or offline.
+  function resetForm() {
+    form.reset();
+
+    audioBlob = null;
+    audioPreview.style.display = "none";
+    audioPreview.removeAttribute("src");
+    audioDot.className = "dot";
+    audioStatus.textContent = "No recording yet";
+    btnRecord.disabled = false;
+    btnStop.disabled = true;
+
+    photoBlob = null;
+    photoPreview.style.display = "none";
+    photoPreview.removeAttribute("src");
+    video.style.display = "none";
+    cameraArmed = false;
+    btnPhoto.textContent = "\u{1F4F7} Capture Photo";
+    photoDot.className = "dot";
+    photoStatus.textContent = "No photo yet";
+
+    btnSubmit.disabled = false;
+    submitStatusRow.style.display = "none";
+    submitDot.className = "dot";
+    submitStatus.textContent = "";
+  }
+
   // ---------- SUBMIT ----------
   const btnSubmit = document.getElementById("btnSubmit");
   const submitStatusRow = document.getElementById("submitStatusRow");
@@ -531,7 +563,7 @@
       submitDot.className = "dot done";
       submitStatus.textContent = "Saved offline — will send when back online";
       toast("No connection — lead saved on this device and will sync automatically.", "success");
-      setTimeout(() => window.location.reload(), 2200);
+      setTimeout(resetForm, 2200);
       return;
     }
 
@@ -540,7 +572,7 @@
       submitDot.className = "dot done";
       submitStatus.textContent = "Submitted successfully";
       toast("Lead captured! Follow-up is on its way.", "success");
-      setTimeout(() => window.location.reload(), 2200);
+      setTimeout(resetForm, 2200);
     } catch (err) {
       // Fetch failed (network drop, backend unreachable, timeout, etc.) —
       // don't lose the lead, queue it locally instead of just erroring out.
@@ -549,7 +581,7 @@
       submitDot.className = "dot done";
       submitStatus.textContent = "Saved offline — will send when back online";
       toast("Couldn't reach the server — lead saved on this device and will sync automatically.", "success");
-      setTimeout(() => window.location.reload(), 2200);
+      setTimeout(resetForm, 2200);
     }
   });
 </script>
