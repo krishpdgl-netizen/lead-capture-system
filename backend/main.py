@@ -20,10 +20,25 @@ import uuid
 import datetime
 from typing import Optional
 
-import imageio_ffmpeg
 import requests
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+# imageio_ffmpeg is used to convert browser-recorded audio (webm) into a
+# format Gemini accepts (see _convert_to_wav below). Importing it is wrapped
+# in a try/except so that if it's ever missing or fails to install for any
+# reason, the WHOLE APP doesn't refuse to boot — leads still get saved, audio
+# conversion just gets skipped and it's logged clearly at startup instead of
+# crashing uvicorn. (This is exactly what caused the last deploy to roll back
+# silently to old code — a missing dependency took the entire API down.)
+try:
+    import imageio_ffmpeg
+    _FFMPEG_AVAILABLE = True
+except ImportError as exc:
+    imageio_ffmpeg = None
+    _FFMPEG_AVAILABLE = False
+    print(f"[STARTUP WARNING] imageio_ffmpeg not available ({exc}) — "
+          f"audio will be sent to Gemini in its original format, which may be rejected.")
 
 # ----------------------------------------------------------------------------
 # Configuration (all via environment variables — see .env.example)
@@ -41,6 +56,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (ais
 # transient issue. Override via GEMINI_MODELS (comma-separated) if needed.
 GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.5-flash").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
+if not GEMINI_API_KEY:
+    print("[STARTUP WARNING] GEMINI_API_KEY is not set — summaries will be skipped entirely.")
+else:
+    # Log a short, safe prefix only — never the full key — so it's possible to
+    # confirm at a glance in Render's logs that the right key is loaded,
+    # without exposing it. Standard Google AI Studio keys start with "AIza".
+    print(f"[STARTUP] GEMINI_API_KEY loaded (starts with '{GEMINI_API_KEY[:6]}...', "
+          f"length {len(GEMINI_API_KEY)})")
 
 app = FastAPI(title="Event Lead Capture API")
 
@@ -60,13 +84,15 @@ def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
     frontend) produces audio/webm (Opus codec), but Gemini's generateContent
     API only officially supports WAV, MP3, AIFF, AAC, OGG Vorbis, and FLAC.
     Sending audio/webm as-is reliably gets rejected with an "Unsupported MIME
-    type" error, which the transcription function swallows into an empty
-    string — so it looks identical to a transcription failure. Converting to
-    WAV first avoids that entirely.
+    type" error, which would otherwise look identical to any other failure.
+    Converting to WAV first avoids that entirely.
 
-    Returns None (rather than raising) on failure, so a conversion hiccup
-    falls back to attempting the original bytes rather than blocking the
-    lead from being saved."""
+    Returns None (rather than raising) if ffmpeg isn't available or
+    conversion fails, so a conversion hiccup falls back to attempting the
+    original bytes rather than blocking the lead from being saved."""
+    if not _FFMPEG_AVAILABLE:
+        return None
+
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
     src_path = dst_path = None
     try:
@@ -92,18 +118,22 @@ def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
                 os.remove(path)
 
 
-def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
-    """Sends the raw audio bytes to Gemini and returns a transcript + brief
-    summary of what the lead said. Tries each model in GEMINI_MODELS in order,
-    falling through to the next on failure. Returns an empty string (rather
-    than raising) if every model fails, so a Gemini hiccup never blocks the
-    lead from being saved."""
+def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
+    """Sends the raw audio bytes to Gemini and returns a short summary of
+    what the lead said — no verbatim transcript, just the summary directly.
+    This is intentionally simpler than a full transcribe-then-summarize
+    prompt: fewer output tokens, nothing to parse out of a longer response,
+    and it's the only part n8n actually uses downstream anyway.
+
+    Tries each model in GEMINI_MODELS in order, falling through to the next
+    on failure. Returns an empty string (rather than raising) if every model
+    fails, so a Gemini hiccup never blocks the lead from being saved."""
     if not GEMINI_API_KEY:
         return ""
 
     # Convert to a Gemini-supported format first (see _convert_to_wav above).
-    # If conversion fails for any reason, fall back to sending the original
-    # bytes/mime type — it's unlikely to succeed for webm, but it's a better
+    # If conversion fails or ffmpeg isn't available, fall back to sending the
+    # original bytes/mime type — unlikely to succeed for webm, but a better
     # fallback than giving up before even trying.
     wav_bytes = _convert_to_wav(audio_bytes)
     if wav_bytes is not None:
@@ -112,9 +142,11 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
         send_bytes, send_mime = audio_bytes, mime_type
 
     prompt = (
-        "Transcribe this audio clip from a trade-show/event booth conversation. "
-        "Then, on a new line starting with 'Summary:', give a 2-3 sentence summary "
-        "of what the customer is interested in and any specific needs they mentioned."
+        "Listen to this audio clip of a trade-show/event booth conversation. "
+        "In 2-3 sentences, summarize what the customer is interested in, "
+        "their company or use case, and any specific needs, quantities, or "
+        "timelines they mentioned. Do not include a verbatim transcript — "
+        "just the summary, as plain text with no headers or labels."
     )
     payload = {
         "contents": [
@@ -139,13 +171,15 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
             resp = requests.post(url, json=payload, timeout=60)
             resp.raise_for_status()
             data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            summary = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            print(f"[Gemini summary succeeded, model={model}]")
+            return summary
         except (requests.RequestException, KeyError, IndexError) as exc:
-            # Logged (not raised) so a transcription failure never blocks the
+            # Logged (not raised) so a summarization failure never blocks the
             # lead from being saved — but printed so you can see the real
             # cause in Render's Logs tab. Falls through to the next model.
             error_body = getattr(getattr(exc, "response", None), "text", "")
-            print(f"[Gemini transcription failed, model={model}] {exc} | response body: {error_body}")
+            print(f"[Gemini summary failed, model={model}] {exc} | response body: {error_body}")
             continue
 
     return ""
@@ -227,6 +261,22 @@ def health_check():
     return {"status": "ok", "service": "event-lead-capture-api"}
 
 
+@app.get("/api/diagnostics")
+def diagnostics():
+    """Quick, no-secrets-exposed way to check what's configured, without
+    digging through Render logs. Visit this URL directly in a browser."""
+    return {
+        "gemini_api_key_set": bool(GEMINI_API_KEY),
+        "gemini_api_key_prefix": (GEMINI_API_KEY[:6] + "...") if GEMINI_API_KEY else None,
+        "gemini_models": GEMINI_MODELS,
+        "ffmpeg_available": _FFMPEG_AVAILABLE,
+        "apps_script_url_set": bool(APPS_SCRIPT_URL),
+        "gdrive_folder_id_set": bool(GDRIVE_FOLDER_ID),
+        "n8n_webhook_url_set": bool(N8N_WEBHOOK_URL),
+        "allowed_origins": ALLOWED_ORIGINS,
+    }
+
+
 @app.post("/api/submit-lead")
 async def submit_lead(
     name: str = Form(...),
@@ -247,9 +297,12 @@ async def submit_lead(
     audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
     photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
 
-    # Transcribe directly here, while we still have the raw bytes in memory —
+    # Summarize directly here, while we still have the raw bytes in memory —
     # this replaces the old plan of downloading the file again inside n8n.
-    transcript = transcribe_audio_with_gemini(
+    # Field name stays "transcript" throughout (Apps Script/Sheets/n8n) for
+    # compatibility with the existing downstream setup — it just now holds a
+    # short summary instead of a full verbatim transcript.
+    transcript = summarize_audio_with_gemini(
         audio_bytes, audio.content_type or "audio/webm"
     )
 
