@@ -144,9 +144,15 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     prompt = (
         "Listen to this audio clip of a trade-show/event booth conversation. "
         "In 2-3 sentences, summarize what the customer is interested in, "
-        "their company or use case, and any specific needs, quantities, or "
-        "timelines they mentioned. Do not include a verbatim transcript — "
-        "just the summary, as plain text with no headers or labels."
+        "their company or use case, and any specific needs or timelines "
+        "they mentioned. Quantity is captured separately on the form, so "
+        "don't guess a quantity from the audio unless it's clearly and "
+        "explicitly stated. Only include a detail if you actually heard it "
+        "said — never infer or assume something wasn't mentioned. If the "
+        "audio is silent, inaudible, too short, or doesn't contain any "
+        "clear conversation, respond with exactly: (audio unclear — no "
+        "reliable summary). Do not include a verbatim transcript — just "
+        "the summary, as plain text with no headers or labels."
     )
     payload = {
         "contents": [
@@ -156,7 +162,13 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
                     {"text": prompt},
                 ]
             }
-        ]
+        ],
+        # Low temperature keeps the model close to what was actually said
+        # instead of embellishing gaps with plausible-sounding invented
+        # details (the main cause of hallucinated summaries).
+        "generationConfig": {
+            "temperature": 0.1,
+        },
     }
 
     for model in GEMINI_MODELS:
