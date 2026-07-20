@@ -133,9 +133,8 @@
 
   .sync-banner {
     display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    flex-direction: column;
+    gap: 6px;
     background: #FFF6E5;
     border: 1px solid #F3D99A;
     color: #8A6100;
@@ -145,6 +144,12 @@
     margin-top: 14px;
   }
   .sync-banner.show { display: flex; }
+  .sync-banner-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
   .sync-banner button {
     background: #8A6100;
     color: #fff;
@@ -152,6 +157,8 @@
     padding: 6px 12px;
     font-size: 12px;
     white-space: nowrap;
+    border: none;
+    cursor: pointer;
   }
   .conn-dot {
     width: 8px; height: 8px; border-radius: 50%;
@@ -159,6 +166,26 @@
     background: var(--green);
   }
   .conn-dot.offline { background: var(--red); }
+
+  .progress-track {
+    width: 100%;
+    height: 6px;
+    background: #E4ECFA;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 8px;
+    display: none;
+  }
+  .progress-track.show { display: block; }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.15s ease;
+  }
+  .sync-banner .progress-track { background: #F3E3B8; }
+  .sync-banner .progress-fill { background: #8A6100; }
 </style>
 </head>
 <body>
@@ -177,8 +204,13 @@
   </header>
 
   <div class="sync-banner" id="syncBanner">
-    <span id="syncBannerText">0 leads waiting to sync</span>
-    <button type="button" id="btnSyncNow">Sync now</button>
+    <div class="sync-banner-top">
+      <span id="syncBannerText">0 leads waiting to sync</span>
+      <button type="button" id="btnSyncNow">Sync now</button>
+    </div>
+    <div class="progress-track" id="syncProgressTrack">
+      <div class="progress-fill" id="syncProgressFill"></div>
+    </div>
   </div>
 
   <form class="card" id="leadForm">
@@ -241,6 +273,9 @@
     <div class="status-row" id="submitStatusRow" style="display:none;">
       <span class="dot" id="submitDot"></span>
       <span id="submitStatus">Uploading...</span>
+    </div>
+    <div class="progress-track" id="submitProgressTrack">
+      <div class="progress-fill" id="submitProgressFill"></div>
     </div>
   </div>
 
@@ -370,22 +405,62 @@
     }
   }
 
-  async function sendRecordToBackend(rec) {
-    const fd = new FormData();
-    fd.append("client_lead_id", rec.id);
-    fd.append("rep_name", rec.repName || "");
-    fd.append("name", rec.name);
-    fd.append("email", rec.email);
-    fd.append("phone", rec.phone);
-    fd.append("company", rec.company);
-    fd.append("industry", rec.industry);
-    fd.append("products", rec.products || "");
-    fd.append("quantity", rec.quantity || "1");
-    fd.append("audio", rec.audioBlob, "conversation.webm");
-    fd.append("photo", rec.photoBlob, "customer.jpg");
-    const res = await fetch(`${API_BASE}/api/submit-lead`, { method: "POST", body: fd });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+  // XHR instead of fetch — fetch has no way to report upload progress,
+  // and these uploads (audio + photo) are big enough that a rep watching
+  // a spinner with no percentage on a flaky booth wifi connection can't
+  // tell whether it's still working or stuck. onProgress(0-100) is called
+  // as bytes go out; it's optional so the queue sync loop can also use
+  // this to compute progress across multiple leads.
+  function sendRecordToBackend(rec, onProgress) {
+    return new Promise((resolve, reject) => {
+      const fd = new FormData();
+      fd.append("client_lead_id", rec.id);
+      fd.append("rep_name", rec.repName || "");
+      fd.append("name", rec.name);
+      fd.append("email", rec.email);
+      fd.append("phone", rec.phone);
+      fd.append("company", rec.company);
+      fd.append("industry", rec.industry);
+      fd.append("products", rec.products || "");
+      fd.append("quantity", rec.quantity || "1");
+      fd.append("audio", rec.audioBlob, "conversation.webm");
+      fd.append("photo", rec.photoBlob, "customer.jpg");
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE}/api/submit-lead`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            resolve({});
+          }
+        } else {
+          reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error"));
+      xhr.send(fd);
+    });
+  }
+
+  const syncProgressTrack = document.getElementById("syncProgressTrack");
+  const syncProgressFill = document.getElementById("syncProgressFill");
+
+  function setSyncProgress(pct, label) {
+    syncProgressTrack.classList.add("show");
+    syncProgressFill.style.width = `${pct}%`;
+    if (label) syncBannerText.textContent = label;
+  }
+
+  function hideSyncProgress() {
+    syncProgressTrack.classList.remove("show");
+    syncProgressFill.style.width = "0%";
   }
 
   let syncing = false;
@@ -395,12 +470,22 @@
     syncing = true;
     try {
       const pending = await queueGetAll();
+      const total = pending.length;
       let sentCount = 0;
-      for (const rec of pending) {
+      for (let i = 0; i < total; i++) {
+        const rec = pending[i];
         try {
-          await sendRecordToBackend(rec);
+          await sendRecordToBackend(rec, (pct) => {
+            // Overall % = leads already fully sent, plus this lead's own
+            // upload progress counted as a fraction of one lead's worth —
+            // so the bar climbs smoothly across the whole queue instead of
+            // resetting to 0 for every individual lead.
+            const overall = Math.round(((i + pct / 100) / total) * 100);
+            setSyncProgress(overall, `Syncing lead ${i + 1} of ${total}... ${overall}%`);
+          });
           await queueDelete(rec.id);
           sentCount++;
+          setSyncProgress(Math.round(((i + 1) / total) * 100));
         } catch (err) {
           // Stop on first failure — likely still offline or backend down;
           // remaining items stay queued and we'll retry on the next pass.
@@ -412,6 +497,7 @@
       }
     } finally {
       syncing = false;
+      hideSyncProgress();
       await refreshBanner();
     }
   }
@@ -534,6 +620,7 @@
     submitStatusRow.style.display = "none";
     submitDot.className = "dot";
     submitStatus.textContent = "";
+    hideSubmitProgress();
   }
 
   // ---------- SUBMIT ----------
@@ -541,7 +628,20 @@
   const submitStatusRow = document.getElementById("submitStatusRow");
   const submitDot = document.getElementById("submitDot");
   const submitStatus = document.getElementById("submitStatus");
+  const submitProgressTrack = document.getElementById("submitProgressTrack");
+  const submitProgressFill = document.getElementById("submitProgressFill");
   const form = document.getElementById("leadForm");
+
+  function setSubmitProgress(pct) {
+    submitProgressTrack.classList.add("show");
+    submitProgressFill.style.width = `${pct}%`;
+    submitStatus.textContent = `Uploading lead data... ${pct}%`;
+  }
+
+  function hideSubmitProgress() {
+    submitProgressTrack.classList.remove("show");
+    submitProgressFill.style.width = "0%";
+  }
 
   btnSubmit.addEventListener("click", async () => {
     if (!form.reportValidity()) return;
@@ -568,7 +668,7 @@
     };
 
     // If we're already known to be offline, skip straight to queuing —
-    // no point waiting on a fetch that can't possibly succeed.
+    // no point waiting on a request that can't possibly succeed.
     if (!navigator.onLine) {
       await queueAdd(record);
       await refreshBanner();
@@ -579,15 +679,18 @@
       return;
     }
 
+    setSubmitProgress(0);
     try {
-      await sendRecordToBackend(record);
+      await sendRecordToBackend(record, (pct) => setSubmitProgress(pct));
+      setSubmitProgress(100);
       submitDot.className = "dot done";
       submitStatus.textContent = "Submitted successfully";
       toast("Lead captured! Follow-up is on its way.", "success");
       setTimeout(resetForm, 2200);
     } catch (err) {
-      // Fetch failed (network drop, backend unreachable, timeout, etc.) —
+      // Request failed (network drop, backend unreachable, timeout, etc.) —
       // don't lose the lead, queue it locally instead of just erroring out.
+      hideSubmitProgress();
       await queueAdd(record);
       await refreshBanner();
       submitDot.className = "dot done";
