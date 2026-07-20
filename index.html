@@ -21,6 +21,7 @@
     font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     background: var(--ice);
     color: var(--navy);
+    overscroll-behavior-y: contain; /* blocks accidental pull-to-refresh */
   }
   .card {
     width: 100%;
@@ -93,6 +94,17 @@
   </div>
 
   <script>
+    // Register the service worker that caches the app shell, so a reload
+    // while offline (e.g. an accidental pull-to-refresh) still renders the
+    // app instead of the browser's native offline page.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch((err) => {
+          console.error("Service worker registration failed:", err);
+        });
+      });
+    }
+
     const REP_NAME_KEY = "lead_capture_rep_name";
 
     // If a rep name is already stored, skip straight to the dashboard rather
