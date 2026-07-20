@@ -10,21 +10,17 @@ Cloud billing/service-account setup required).
 Deploy target: Render (or any ASGI host).
 """
 
-import asyncio
 import base64
 import os
-import re
 import subprocess
 import tempfile
-import traceback
 import uuid
 import datetime
 from typing import Optional
 
 import requests
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 # imageio_ffmpeg is used to convert browser-recorded audio (webm) into a
 # format Gemini accepts (see _convert_to_wav below). Importing it is wrapped
@@ -58,20 +54,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (ais
 GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.0-flash").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
-# Gemini has been observed to hallucinate a plausible-sounding customer
-# conversation summary for audio that is actually silent or near-silent,
-# rather than reliably following the "respond with (audio unclear...)"
-# instruction in the prompt below — LLMs can't be fully trusted to
-# self-report "I heard nothing." So before ever calling Gemini, a local
-# ffmpeg volume check screens out near-silent clips deterministically.
-# Tune these if real (quiet-but-present) conversations start getting
-# skipped, or if truly silent clips still get through:
-#   - raise (less negative) SILENCE_MEAN_VOLUME_DB to catch more clips
-#   - raise (less negative) SILENCE_MAX_VOLUME_DB to catch more clips
-SILENCE_MEAN_VOLUME_DB = float(os.getenv("SILENCE_MEAN_VOLUME_DB", "-45"))
-SILENCE_MAX_VOLUME_DB = float(os.getenv("SILENCE_MAX_VOLUME_DB", "-35"))
-SILENCE_FALLBACK_TEXT = "(audio unclear — no reliable summary)"
-
 if not GEMINI_API_KEY:
     print("[STARTUP WARNING] GEMINI_API_KEY is not set — summaries will be skipped entirely.")
 else:
@@ -89,26 +71,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    """Catches anything not already turned into a proper HTTPException
-    elsewhere in the app. This matters for CORS specifically: FastAPI's
-    default behavior for a truly unhandled exception is to return a bare
-    500 that bypasses CORSMiddleware entirely (a Starlette quirk — the
-    exception unwinds past the middleware before a response exists for it
-    to attach headers to). The browser then reports it as "blocked by CORS
-    policy" with zero useful detail, even though CORS was never the actual
-    problem. Handling it here keeps the response inside the normal
-    middleware stack, so the real error reaches the frontend/browser
-    console instead of being masked."""
-    traceback.print_exc()
-    print(f"[UNHANDLED EXCEPTION] {request.method} {request.url.path}: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"status": "error", "message": f"Internal server error: {exc}"},
-    )
 
 
 def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
@@ -153,62 +115,7 @@ def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
                 os.remove(path)
 
 
-def _measure_volume_db(audio_bytes: bytes, mime_type: str) -> Optional[dict]:
-    """Runs ffmpeg's volumedetect filter over the raw audio and returns
-    {'mean': float, 'max': float} in dBFS, or None if detection fails
-    (missing ffmpeg, corrupt audio, etc.) — callers should treat None as
-    "couldn't determine, don't skip" rather than "silent".
-
-    This is a deterministic, local check for near-silent/blank audio —
-    used to short-circuit BEFORE calling Gemini at all, since Gemini
-    itself is not reliable at self-reporting silence (see comment on
-    SILENCE_MEAN_VOLUME_DB above)."""
-    if not _FFMPEG_AVAILABLE:
-        return None
-
-    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-    suffix = ".webm" if "webm" in (mime_type or "") else ".wav" if "wav" in (mime_type or "") else ".audio"
-    src_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as src:
-            src.write(audio_bytes)
-            src_path = src.name
-
-        result = subprocess.run(
-            [ffmpeg_path, "-i", src_path, "-af", "volumedetect", "-f", "null", "-"],
-            capture_output=True, timeout=30, text=True,
-        )
-        stderr = result.stderr or ""
-        mean_match = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", stderr)
-        max_match = re.search(r"max_volume:\s*(-?[\d.]+)\s*dB", stderr)
-        if not mean_match or not max_match:
-            print(f"[Volume detection] Could not parse ffmpeg output — proceeding without a silence check. stderr tail: {stderr[-300:]}")
-            return None
-
-        return {"mean": float(mean_match.group(1)), "max": float(max_match.group(1))}
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        print(f"[Volume detection failed] {exc} — proceeding without a silence check.")
-        return None
-    finally:
-        if src_path and os.path.exists(src_path):
-            os.remove(src_path)
-
-
-def _is_silent(audio_bytes: bytes, mime_type: str) -> bool:
-    """True if the clip's volume profile looks like silence/near-silence —
-    both the average AND the loudest moment have to be quiet, since a
-    short loud word in an otherwise quiet room should NOT be treated as
-    silent (mean alone would be misleadingly low for that case)."""
-    volume = _measure_volume_db(audio_bytes, mime_type)
-    if volume is None:
-        return False  # can't tell — don't block a real lead on a detection failure
-    is_quiet = volume["mean"] < SILENCE_MEAN_VOLUME_DB and volume["max"] < SILENCE_MAX_VOLUME_DB
-    if is_quiet:
-        print(f"[Volume detection] Near-silence detected (mean={volume['mean']}dB, max={volume['max']}dB) — skipping Gemini call.")
-    return is_quiet
-
-
-
+def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     """Sends the raw audio bytes to Gemini and returns a short summary of
     what the lead said — no verbatim transcript, just the summary directly.
     This is intentionally simpler than a full transcribe-then-summarize
@@ -219,13 +126,6 @@ def _is_silent(audio_bytes: bytes, mime_type: str) -> bool:
     fails, so a Gemini hiccup never blocks the lead from being saved."""
     if not GEMINI_API_KEY:
         return ""
-
-    # Screen out near-silent clips deterministically BEFORE calling Gemini —
-    # see the comment on SILENCE_MEAN_VOLUME_DB near the top of the file for
-    # why this exists (Gemini has been observed to fabricate a summary for
-    # silent audio rather than reporting it as silent).
-    if _is_silent(audio_bytes, mime_type):
-        return SILENCE_FALLBACK_TEXT
 
     # Convert to a Gemini-supported format first (see _convert_to_wav above).
     # If conversion fails or ffmpeg isn't available, fall back to sending the
@@ -372,29 +272,9 @@ def save_lead_via_apps_script(
     try:
         resp = requests.post(APPS_SCRIPT_URL, json=payload, timeout=30)
         resp.raise_for_status()
+        result = resp.json()
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Apps Script request failed: {exc}")
-
-    try:
-        result = resp.json()
-    except ValueError:
-        # Apps Script returned something that isn't JSON — usually an HTML
-        # authorization/consent page (e.g. after adding a new permission
-        # scope like GmailApp to the same script project and not yet
-        # re-consenting), or an HTML error page from a broken deployment.
-        # This used to crash unhandled here, which produced a 500 with NO
-        # CORS header (browsers then misreport it as a CORS error) instead
-        # of a clear message.
-        body_preview = resp.text[:500]
-        print(f"[Apps Script returned non-JSON] status={resp.status_code} body_preview={body_preview!r}")
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Apps Script Web App returned a non-JSON response (likely needs "
-                "re-authorization after a permissions change, or a fresh "
-                "deployment). Check Render logs for the raw response body."
-            ),
-        )
 
     if result.get("status") != "success":
         raise HTTPException(status_code=502, detail=f"Apps Script error: {result.get('message')}")
@@ -452,23 +332,15 @@ async def submit_lead(
     audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
     photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
 
-    # summarize_audio_with_gemini and save_lead_via_apps_script both do
-    # BLOCKING work (subprocess.run for ffmpeg, requests.post to Gemini/Apps
-    # Script — each with 30-60s timeouts). Calling them directly here would
-    # block this whole process's single event loop for the entire duration,
-    # since this route is `async def`. On a single-worker deploy (typical
-    # for Render's smaller instance types), that can make the whole server
-    # unresponsive to Render's own health checks for the duration of ONE
-    # request, which can get the request killed by Render's edge/proxy with
-    # a bare 500 that never reaches FastAPI's CORS middleware at all — the
-    # likely cause of the CORS-looking failures. Running them in a thread
-    # keeps the event loop free.
-    transcript = await asyncio.to_thread(
-        summarize_audio_with_gemini, audio_bytes, audio.content_type or "audio/webm"
+    # Summarize directly here, while we still have the raw bytes in memory.
+    # Field name stays "transcript" throughout (Apps Script/Sheets) for
+    # compatibility with the existing downstream setup — it just now holds a
+    # short summary instead of a full verbatim transcript.
+    transcript = summarize_audio_with_gemini(
+        audio_bytes, audio.content_type or "audio/webm"
     )
 
-    result = await asyncio.to_thread(
-        save_lead_via_apps_script,
+    result = save_lead_via_apps_script(
         lead_id=lead_id,
         timestamp=timestamp,
         rep_name=rep_name,
