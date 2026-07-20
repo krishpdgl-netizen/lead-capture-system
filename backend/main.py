@@ -2,12 +2,10 @@
 Event Lead Capture — FastAPI Backend
 -------------------------------------
 Receives lead submissions (form fields + audio + photo) from the frontend,
-transcribes the audio directly via the Gemini API (no separate n8n step
-needed), sends the media files + row data + transcript to a Google Apps
-Script Web App (which saves them to Drive and Sheets under your own
-Google account, with no Cloud billing/service-account setup required),
-and triggers an n8n webhook with the transcript already included so n8n
-only has to draft the quotation email and send it.
+transcribes the audio directly via the Gemini API, and sends the media
+files + row data + transcript to a Google Apps Script Web App (which
+saves them to Drive and Sheets under your own Google account, with no
+Cloud billing/service-account setup required).
 
 Deploy target: Render (or any ASGI host).
 """
@@ -45,7 +43,6 @@ except ImportError as exc:
 # ----------------------------------------------------------------------------
 APPS_SCRIPT_URL = os.getenv("APPS_SCRIPT_URL")            # Google Apps Script /exec URL
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")          # Drive folder to store audio/photos
-N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")             # n8n workflow trigger URL
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (aistudio.google.com/apikey)
 # Pinned model versions (gemini-2.0-flash, gemini-2.5-flash-lite, gemini-2.5-flash,
 # etc.) keep getting closed off to new API keys as Google rotates its lineup.
@@ -122,8 +119,7 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     """Sends the raw audio bytes to Gemini and returns a short summary of
     what the lead said — no verbatim transcript, just the summary directly.
     This is intentionally simpler than a full transcribe-then-summarize
-    prompt: fewer output tokens, nothing to parse out of a longer response,
-    and it's the only part n8n actually uses downstream anyway.
+    prompt: fewer output tokens, nothing to parse out of a longer response.
 
     Tries each model in GEMINI_MODELS in order, falling through to the next
     on failure. Returns an empty string (rather than raising) if every model
@@ -286,17 +282,6 @@ def save_lead_via_apps_script(
     return result
 
 
-def trigger_n8n(payload: dict):
-    if not N8N_WEBHOOK_URL:
-        return
-    try:
-        requests.post(N8N_WEBHOOK_URL, json=payload, timeout=10)
-    except requests.RequestException:
-        # Don't fail the whole request if n8n is briefly unreachable —
-        # the lead is already saved in Sheets/Drive at this point.
-        pass
-
-
 @app.get("/")
 def health_check():
     return {"status": "ok", "service": "event-lead-capture-api"}
@@ -313,7 +298,6 @@ def diagnostics():
         "ffmpeg_available": _FFMPEG_AVAILABLE,
         "apps_script_url_set": bool(APPS_SCRIPT_URL),
         "gdrive_folder_id_set": bool(GDRIVE_FOLDER_ID),
-        "n8n_webhook_url_set": bool(N8N_WEBHOOK_URL),
         "allowed_origins": ALLOWED_ORIGINS,
     }
 
@@ -348,9 +332,8 @@ async def submit_lead(
     audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
     photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
 
-    # Summarize directly here, while we still have the raw bytes in memory —
-    # this replaces the old plan of downloading the file again inside n8n.
-    # Field name stays "transcript" throughout (Apps Script/Sheets/n8n) for
+    # Summarize directly here, while we still have the raw bytes in memory.
+    # Field name stays "transcript" throughout (Apps Script/Sheets) for
     # compatibility with the existing downstream setup — it just now holds a
     # short summary instead of a full verbatim transcript.
     transcript = summarize_audio_with_gemini(
@@ -377,31 +360,10 @@ async def submit_lead(
         transcript=transcript,
     )
 
-    audio_link = result["audio_url"]
-    photo_link = result["photo_url"]
-
-    trigger_n8n(
-        {
-            "lead_id": lead_id,
-            "timestamp": timestamp,
-            "rep_name": rep_name,
-            "name": name,
-            "email": email,
-            "phone": phone,
-            "company": company,
-            "industry": industry,
-            "products": products,
-            "quantity": quantity,
-            "audio_url": audio_link,
-            "photo_url": photo_link,
-            "transcript": transcript,
-        }
-    )
-
     return {
         "status": "success",
         "lead_id": lead_id,
-        "audio_url": audio_link,
-        "photo_url": photo_link,
+        "audio_url": result["audio_url"],
+        "photo_url": result["photo_url"],
         "transcript": transcript,
     }
