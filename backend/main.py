@@ -143,7 +143,7 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
 
     prompt = (
         "Listen to this audio clip of a trade-show/event booth conversation. "
-        "In 2-3 sentences, summarize what the customer is interested in, "
+        "In 5-6 sentences, summarize what the customer is interested in, "
         "their company or use case, and any specific needs or timelines "
         "they mentioned. Quantity is captured separately on the form, so "
         "don't guess a quantity from the audio unless it's clearly and "
