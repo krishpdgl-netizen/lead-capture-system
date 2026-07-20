@@ -10,6 +10,7 @@ Cloud billing/service-account setup required).
 Deploy target: Render (or any ASGI host).
 """
 
+import asyncio
 import base64
 import os
 import re
@@ -451,15 +452,23 @@ async def submit_lead(
     audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
     photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
 
-    # Summarize directly here, while we still have the raw bytes in memory.
-    # Field name stays "transcript" throughout (Apps Script/Sheets) for
-    # compatibility with the existing downstream setup — it just now holds a
-    # short summary instead of a full verbatim transcript.
-    transcript = summarize_audio_with_gemini(
-        audio_bytes, audio.content_type or "audio/webm"
+    # summarize_audio_with_gemini and save_lead_via_apps_script both do
+    # BLOCKING work (subprocess.run for ffmpeg, requests.post to Gemini/Apps
+    # Script — each with 30-60s timeouts). Calling them directly here would
+    # block this whole process's single event loop for the entire duration,
+    # since this route is `async def`. On a single-worker deploy (typical
+    # for Render's smaller instance types), that can make the whole server
+    # unresponsive to Render's own health checks for the duration of ONE
+    # request, which can get the request killed by Render's edge/proxy with
+    # a bare 500 that never reaches FastAPI's CORS middleware at all — the
+    # likely cause of the CORS-looking failures. Running them in a thread
+    # keeps the event loop free.
+    transcript = await asyncio.to_thread(
+        summarize_audio_with_gemini, audio_bytes, audio.content_type or "audio/webm"
     )
 
-    result = save_lead_via_apps_script(
+    result = await asyncio.to_thread(
+        save_lead_via_apps_script,
         lead_id=lead_id,
         timestamp=timestamp,
         rep_name=rep_name,
