@@ -12,6 +12,7 @@ Deploy target: Render (or any ASGI host).
 
 import base64
 import os
+import re
 import subprocess
 import tempfile
 import uuid
@@ -53,6 +54,20 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (ais
 # transient issue. Override via GEMINI_MODELS (comma-separated) if needed.
 GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.0-flash").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
+# Gemini has been observed to hallucinate a plausible-sounding customer
+# conversation summary for audio that is actually silent or near-silent,
+# rather than reliably following the "respond with (audio unclear...)"
+# instruction in the prompt below — LLMs can't be fully trusted to
+# self-report "I heard nothing." So before ever calling Gemini, a local
+# ffmpeg volume check screens out near-silent clips deterministically.
+# Tune these if real (quiet-but-present) conversations start getting
+# skipped, or if truly silent clips still get through:
+#   - raise (less negative) SILENCE_MEAN_VOLUME_DB to catch more clips
+#   - raise (less negative) SILENCE_MAX_VOLUME_DB to catch more clips
+SILENCE_MEAN_VOLUME_DB = float(os.getenv("SILENCE_MEAN_VOLUME_DB", "-45"))
+SILENCE_MAX_VOLUME_DB = float(os.getenv("SILENCE_MAX_VOLUME_DB", "-35"))
+SILENCE_FALLBACK_TEXT = "(audio unclear — no reliable summary)"
 
 if not GEMINI_API_KEY:
     print("[STARTUP WARNING] GEMINI_API_KEY is not set — summaries will be skipped entirely.")
@@ -115,7 +130,62 @@ def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
                 os.remove(path)
 
 
-def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
+def _measure_volume_db(audio_bytes: bytes, mime_type: str) -> Optional[dict]:
+    """Runs ffmpeg's volumedetect filter over the raw audio and returns
+    {'mean': float, 'max': float} in dBFS, or None if detection fails
+    (missing ffmpeg, corrupt audio, etc.) — callers should treat None as
+    "couldn't determine, don't skip" rather than "silent".
+
+    This is a deterministic, local check for near-silent/blank audio —
+    used to short-circuit BEFORE calling Gemini at all, since Gemini
+    itself is not reliable at self-reporting silence (see comment on
+    SILENCE_MEAN_VOLUME_DB above)."""
+    if not _FFMPEG_AVAILABLE:
+        return None
+
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    suffix = ".webm" if "webm" in (mime_type or "") else ".wav" if "wav" in (mime_type or "") else ".audio"
+    src_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as src:
+            src.write(audio_bytes)
+            src_path = src.name
+
+        result = subprocess.run(
+            [ffmpeg_path, "-i", src_path, "-af", "volumedetect", "-f", "null", "-"],
+            capture_output=True, timeout=30, text=True,
+        )
+        stderr = result.stderr or ""
+        mean_match = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", stderr)
+        max_match = re.search(r"max_volume:\s*(-?[\d.]+)\s*dB", stderr)
+        if not mean_match or not max_match:
+            print(f"[Volume detection] Could not parse ffmpeg output — proceeding without a silence check. stderr tail: {stderr[-300:]}")
+            return None
+
+        return {"mean": float(mean_match.group(1)), "max": float(max_match.group(1))}
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        print(f"[Volume detection failed] {exc} — proceeding without a silence check.")
+        return None
+    finally:
+        if src_path and os.path.exists(src_path):
+            os.remove(src_path)
+
+
+def _is_silent(audio_bytes: bytes, mime_type: str) -> bool:
+    """True if the clip's volume profile looks like silence/near-silence —
+    both the average AND the loudest moment have to be quiet, since a
+    short loud word in an otherwise quiet room should NOT be treated as
+    silent (mean alone would be misleadingly low for that case)."""
+    volume = _measure_volume_db(audio_bytes, mime_type)
+    if volume is None:
+        return False  # can't tell — don't block a real lead on a detection failure
+    is_quiet = volume["mean"] < SILENCE_MEAN_VOLUME_DB and volume["max"] < SILENCE_MAX_VOLUME_DB
+    if is_quiet:
+        print(f"[Volume detection] Near-silence detected (mean={volume['mean']}dB, max={volume['max']}dB) — skipping Gemini call.")
+    return is_quiet
+
+
+
     """Sends the raw audio bytes to Gemini and returns a short summary of
     what the lead said — no verbatim transcript, just the summary directly.
     This is intentionally simpler than a full transcribe-then-summarize
@@ -126,6 +196,13 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     fails, so a Gemini hiccup never blocks the lead from being saved."""
     if not GEMINI_API_KEY:
         return ""
+
+    # Screen out near-silent clips deterministically BEFORE calling Gemini —
+    # see the comment on SILENCE_MEAN_VOLUME_DB near the top of the file for
+    # why this exists (Gemini has been observed to fabricate a summary for
+    # silent audio rather than reporting it as silent).
+    if _is_silent(audio_bytes, mime_type):
+        return SILENCE_FALLBACK_TEXT
 
     # Convert to a Gemini-supported format first (see _convert_to_wav above).
     # If conversion fails or ffmpeg isn't available, fall back to sending the
