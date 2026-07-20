@@ -15,13 +15,15 @@ import os
 import re
 import subprocess
 import tempfile
+import traceback
 import uuid
 import datetime
 from typing import Optional
 
 import requests
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # imageio_ffmpeg is used to convert browser-recorded audio (webm) into a
 # format Gemini accepts (see _convert_to_wav below). Importing it is wrapped
@@ -86,6 +88,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catches anything not already turned into a proper HTTPException
+    elsewhere in the app. This matters for CORS specifically: FastAPI's
+    default behavior for a truly unhandled exception is to return a bare
+    500 that bypasses CORSMiddleware entirely (a Starlette quirk — the
+    exception unwinds past the middleware before a response exists for it
+    to attach headers to). The browser then reports it as "blocked by CORS
+    policy" with zero useful detail, even though CORS was never the actual
+    problem. Handling it here keeps the response inside the normal
+    middleware stack, so the real error reaches the frontend/browser
+    console instead of being masked."""
+    traceback.print_exc()
+    print(f"[UNHANDLED EXCEPTION] {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"status": "error", "message": f"Internal server error: {exc}"},
+    )
 
 
 def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
@@ -349,9 +371,29 @@ def save_lead_via_apps_script(
     try:
         resp = requests.post(APPS_SCRIPT_URL, json=payload, timeout=30)
         resp.raise_for_status()
-        result = resp.json()
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Apps Script request failed: {exc}")
+
+    try:
+        result = resp.json()
+    except ValueError:
+        # Apps Script returned something that isn't JSON — usually an HTML
+        # authorization/consent page (e.g. after adding a new permission
+        # scope like GmailApp to the same script project and not yet
+        # re-consenting), or an HTML error page from a broken deployment.
+        # This used to crash unhandled here, which produced a 500 with NO
+        # CORS header (browsers then misreport it as a CORS error) instead
+        # of a clear message.
+        body_preview = resp.text[:500]
+        print(f"[Apps Script returned non-JSON] status={resp.status_code} body_preview={body_preview!r}")
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Apps Script Web App returned a non-JSON response (likely needs "
+                "re-authorization after a permissions change, or a fresh "
+                "deployment). Check Render logs for the raw response body."
+            ),
+        )
 
     if result.get("status") != "success":
         raise HTTPException(status_code=502, detail=f"Apps Script error: {result.get('message')}")
