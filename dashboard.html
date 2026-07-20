@@ -19,6 +19,7 @@
     font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     background: var(--ice);
     color: var(--navy);
+    overscroll-behavior-y: contain; /* blocks accidental pull-to-refresh */
   }
   .wrap {
     max-width: 560px;
@@ -249,6 +250,17 @@
 <div id="toast"></div>
 
 <script>
+  // Register the service worker that caches the app shell, so a reload
+  // while offline (e.g. an accidental pull-to-refresh) still renders the
+  // app instead of the browser's native offline page.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js").catch((err) => {
+        console.error("Service worker registration failed:", err);
+      });
+    });
+  }
+
   // ----- CONFIG -----
   // Point this at your deployed FastAPI backend (Render URL), e.g.
   // const API_BASE = "https://your-app.onrender.com";
