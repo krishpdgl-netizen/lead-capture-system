@@ -477,7 +477,7 @@ video, img.preview {
       <div class="card-icon"><svg viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="14"><rect x="1" y="1" width="18" height="12" rx="2" stroke="#3E7BFA" stroke-width="1.5"/><rect x="1" y="4.5" width="18" height="2.5" fill="#3E7BFA" opacity=".4"/><rect x="3.5" y="8.5" width="5" height="1.5" rx=".75" fill="#3E7BFA"/></svg></div>
       <div>
         <div class="card-title">Visiting Card</div>
-        <div class="card-sub">Snap the card — details fill in automatically</div>
+        <div class="card-sub">Scan the card to fill details automatically</div>
       </div>
     </div>
 
@@ -525,7 +525,7 @@ video, img.preview {
     <div class="card-head">
       <div class="card-icon green-bg"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="7" r="3.5" stroke="#2FA36B" stroke-width="1.5"/><path d="M3.5 17c0-3.314 2.91-6 6.5-6s6.5 2.686 6.5 6" stroke="#2FA36B" stroke-width="1.5" stroke-linecap="round"/></svg></div>
       <div>
-        <div class="card-title">Customer Photo</div>
+        <div class="card-title">Memory Photo</div>
         <div class="card-sub">Optional — helps identify the lead</div>
       </div>
     </div>
@@ -859,8 +859,7 @@ function setSubProg(pct) {
 
 btnSubmit.addEventListener("click", async () => {
   if (!audioBlob) { toast("Please record the conversation first.", "error"); return; }
-  btnSubmit.disabled=true; submitSt.style.display="flex";
-  submitDot.className="dot active"; submitStTxt.textContent="Saving lead…";
+  btnSubmit.disabled=true;
 
   const rec = {
     id: uid(), repName: repName||"",
@@ -871,28 +870,18 @@ btnSubmit.addEventListener("click", async () => {
     cardBlob: cardBlob||null,
   };
 
-  if (!navigator.onLine) {
-    await qAdd(rec); await refreshBanner();
-    submitDot.className="dot done";
-    submitStTxt.textContent="Saved — will sync when online";
-    toast("Lead saved. Will sync automatically.", "success");
-    setTimeout(reset, 2400); return;
-  }
+  // Save to the local queue immediately — this is instant (IndexedDB write).
+  // The rep sees "Lead saved" and the form resets right away so they can
+  // move to the next customer. The actual upload to the backend happens in
+  // the background via syncQueue, completely independent of this button press.
+  await qAdd(rec);
+  toast("Lead saved — moving to next customer.", "success");
+  reset();
 
-  try {
-    await sendToBackend(rec, pct => setSubProg(pct));
-    setSubProg(100); submitDot.className="dot done";
-    submitStTxt.textContent="Lead submitted";
-    toast("Lead captured successfully.", "success");
-    setTimeout(reset, 2400);
-  } catch {
-    submitTrack.classList.remove("show");
-    await qAdd(rec); await refreshBanner();
-    submitDot.className="dot done";
-    submitStTxt.textContent="Saved — will sync when online";
-    toast("Offline — lead saved, will sync automatically.", "success");
-    setTimeout(reset, 2400);
-  }
+  // Kick off a background sync without awaiting it — the rep never waits
+  // for the upload. If offline the queue will drain automatically when
+  // connectivity returns via the online event listener and the 20s interval.
+  syncQueue({ silent: true });
 });
 
 /* ── RESET ──────────────────────────────────── */
