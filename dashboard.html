@@ -255,94 +255,31 @@ video, img.preview {
 }
 
 /* ── ACTION BUTTONS ──────────────────────────────────── */
-.action-btn {
-  width: 100%;
-  padding: 14px 16px;
-  border: 1.5px solid #DCE6F7;
-  border-radius: 12px;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  cursor: pointer;
-  transition: all .15s;
-  -webkit-tap-highlight-color: transparent;
-  text-align: left;
-}
-.action-btn:active { transform: scale(.985); background: var(--ice); }
-.action-btn .a-icon {
-  font-size: 22px;
-  width: 32px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.action-btn .a-body { flex: 1; }
-.action-btn .a-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--navy);
-  display: block;
-}
-.action-btn .a-sub {
-  font-size: 11.5px;
-  color: var(--gray);
-  display: block;
-  margin-top: 1px;
-}
-.action-btn .a-check {
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  background: var(--green);
-  color: #fff;
-  font-size: 12px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-weight: 700;
-}
-
-/* Button states */
-.action-btn.state-armed {
-  border-color: var(--accent);
-  background: var(--ice);
-}
-.action-btn.state-armed .a-label { color: var(--accent); }
-.action-btn.state-done {
-  border-color: #C8EDD9;
-  background: #F4FBF7;
-}
-.action-btn.state-done .a-label { color: var(--green); }
-.action-btn.state-done .a-check { display: flex; }
-
-/* Record / Stop */
-.record-btn {
-  width: 100%;
-  padding: 15px 16px;
-  border: none;
-  border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  cursor: pointer;
-  transition: all .15s;
-  -webkit-tap-highlight-color: transparent;
-  text-align: left;
-}
-.record-btn .a-icon { font-size: 22px; width: 32px; text-align: center; flex-shrink: 0; }
-.record-btn .a-label { font-size: 14px; font-weight: 600; display: block; }
-.record-btn .a-sub   { font-size: 11.5px; opacity: .75; display: block; margin-top: 1px; }
-.record-btn.is-recording {
-  background: var(--red);
-  animation: ring 1.6s ease-in-out infinite;
-}
-@keyframes ring {
-  0%,100% { box-shadow: 0 0 0 0 rgba(214,90,86,.5); }
-  50%      { box-shadow: 0 0 0 7px rgba(214,90,86,0); }
-}
-.record-btn:active { transform: scale(.985); }
+/* ── BUTTONS — exact original design ── */
+  button {
+    border: none;
+    border-radius: 24px;
+    padding: 13px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: #fff;
+    width: 100%;
+    margin-top: 10px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:first-of-type { margin-top: 0; }
+  .btn-scan   { background: var(--navy); }
+  .btn-record { background: var(--accent); }
+  .btn-stop   { background: var(--red); display: none; }
+  .btn-photo  { background: var(--navy); }
+  .btn-submit { background: var(--green); padding: 15px; font-size: 15px; margin-top: 0; }
+  .btn-done   { background: var(--green); }
 
 /* ── STATUS ROW ──────────────────────────────────────── */
 .status-row {
@@ -547,14 +484,7 @@ video, img.preview {
     <video id="cardVideo" autoplay playsinline></video>
     <img class="preview" id="cardPreview" alt="Visiting card" />
 
-    <button class="action-btn" id="btnScanCard">
-      <span class="a-icon"><svg viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="18"><path d="M7 2H4a2 2 0 0 0-2 2v1M13 2h3a2 2 0 0 1 2 2v1M2 13v1a2 2 0 0 0 2 2h1M18 13v1a2 2 0 0 1-2 2h-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="9.5" r="3" stroke="currentColor" stroke-width="1.5"/></svg></span>
-      <span class="a-body">
-        <span class="a-label">Scan Visiting Card</span>
-        <span class="a-sub">Opens rear camera</span>
-      </span>
-      <span class="a-check"></span>
-    </button>
+    <button class="btn-scan" id="btnScanCard">Scan Visiting Card</button>
 
     <div class="status-row">
       <span class="dot" id="cardDot"></span>
@@ -580,20 +510,8 @@ video, img.preview {
       </div>
     </div>
 
-    <button class="record-btn" id="btnRecord">
-      <span class="a-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="5" fill="currentColor"/></svg></span>
-      <span class="a-body">
-        <span class="a-label">Start Recording</span>
-        <span class="a-sub">Tap to begin</span>
-      </span>
-    </button>
-    <button class="record-btn is-recording" id="btnStop" style="display:none">
-      <span class="a-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/></svg></span>
-      <span class="a-body">
-        <span class="a-label">Stop Recording</span>
-        <span class="a-sub">Tap when conversation ends</span>
-      </span>
-    </button>
+    <button class="btn-record" id="btnRecord">Start Recording</button>
+    <button class="btn-stop" id="btnStop">Stop Recording</button>
 
     <div class="status-row">
       <span class="dot" id="audioDot"></span>
@@ -615,14 +533,7 @@ video, img.preview {
     <video id="photoVideo" autoplay playsinline></video>
     <img class="preview" id="photoPreview" alt="Customer" />
 
-    <button class="action-btn" id="btnPhoto">
-      <span class="a-icon"><svg viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="18"><path d="M7 2H4a2 2 0 0 0-2 2v1M13 2h3a2 2 0 0 1 2 2v1M2 13v1a2 2 0 0 0 2 2h1M18 13v1a2 2 0 0 1-2 2h-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="9.5" r="3" stroke="currentColor" stroke-width="1.5"/></svg></span>
-      <span class="a-body">
-        <span class="a-label">Capture Photo</span>
-        <span class="a-sub">Opens rear camera</span>
-      </span>
-      <span class="a-check"></span>
-    </button>
+    <button class="btn-photo" id="btnPhoto">Capture Photo</button>
 
     <div class="status-row">
       <span class="dot" id="photoDot"></span>
@@ -632,9 +543,7 @@ video, img.preview {
 
   <!-- SUBMIT -->
   <div class="submit-wrap">
-    <button class="submit-btn" id="btnSubmit">
-      Submit Lead
-    </button>
+    <button class="btn-submit" id="btnSubmit">Submit Lead</button>
     <div class="submit-status" id="submitStatus">
       <div class="submit-status-row">
         <span class="dot" id="submitDot"></span>
@@ -818,9 +727,9 @@ btnScanCard.addEventListener("click", async () => {
       cardVideo.style.display = "block";
       cardPreview.style.display = "none";
       cardArmed = true;
-      btnScanCard.querySelector(".a-label").textContent = "Snap Card";
-      btnScanCard.querySelector(".a-sub").textContent   = "Point at card, then tap";
-      btnScanCard.classList.add("state-armed");
+      btnScanCard.textContent = "Snap Card";
+      
+      
     } catch { toast("Camera access denied.", "error"); }
     return;
   }
@@ -834,9 +743,9 @@ btnScanCard.addEventListener("click", async () => {
     cardVideo.style.display = "none";
     cardStream.getTracks().forEach(t=>t.stop());
     cardArmed = false;
-    btnScanCard.className = "action-btn state-done";
-    btnScanCard.querySelector(".a-label").textContent = "Rescan Card";
-    btnScanCard.querySelector(".a-sub").textContent   = "Tap to replace";
+    btnScanCard.className = "btn-done";
+    btnScanCard.textContent = "Rescan Card";
+    
     cardDot.className = "dot active";
     cardSt.textContent = "Reading card…";
 
@@ -913,9 +822,9 @@ btnPhoto.addEventListener("click", async () => {
       photoVideo.style.display = "block";
       photoPreview.style.display = "none";
       photoArmed = true;
-      btnPhoto.querySelector(".a-label").textContent = "Snap Photo";
-      btnPhoto.querySelector(".a-sub").textContent   = "Point at customer, then tap";
-      btnPhoto.classList.add("state-armed");
+      btnPhoto.textContent = "Snap Photo";
+      
+      
     } catch { toast("Camera access denied.", "error"); }
     return;
   }
@@ -927,9 +836,9 @@ btnPhoto.addEventListener("click", async () => {
     photoPreview.src = URL.createObjectURL(blob);
     photoPreview.style.display="block"; photoVideo.style.display="none";
     photoStream.getTracks().forEach(t=>t.stop()); photoArmed=false;
-    btnPhoto.className = "action-btn state-done";
-    btnPhoto.querySelector(".a-label").textContent = "Retake Photo";
-    btnPhoto.querySelector(".a-sub").textContent   = "Tap to replace";
+    btnPhoto.className = "btn-done";
+    btnPhoto.textContent = "Retake Photo";
+    
     photoDot.className = "dot done"; photoSt.textContent = "Photo captured";
     stepper(!!cardBlob, !!audioBlob, true);
   }, "image/jpeg", 0.9);
@@ -993,9 +902,9 @@ function reset() {
   cardVideo.style.display="none";
   if(cardStream){cardStream.getTracks().forEach(t=>t.stop());cardStream=null;}
   cardArmed=false;
-  btnScanCard.className="action-btn";
-  btnScanCard.querySelector(".a-label").textContent="Scan Visiting Card";
-  btnScanCard.querySelector(".a-sub").textContent="Opens rear camera";
+  btnScanCard.className="btn-scan";
+  btnScanCard.textContent="Scan Visiting Card";
+  
   cardDot.className="dot"; cardSt.textContent="Ready to scan";
   extBlock.classList.remove("show");
   ["efRowName","efRowEmail","efRowPhone","efRowCompany"].forEach(id=>document.getElementById(id).style.display="none");
@@ -1010,9 +919,9 @@ function reset() {
   photoVideo.style.display="none";
   if(photoStream){photoStream.getTracks().forEach(t=>t.stop());photoStream=null;}
   photoArmed=false;
-  btnPhoto.className="action-btn";
-  btnPhoto.querySelector(".a-label").textContent="Capture Photo";
-  btnPhoto.querySelector(".a-sub").textContent="Opens rear camera";
+  btnPhoto.className="btn-photo";
+  btnPhoto.textContent="Capture Photo";
+  
   photoDot.className="dot"; photoSt.textContent="Ready";
 
   btnSubmit.disabled=false; submitSt.style.display="none";
