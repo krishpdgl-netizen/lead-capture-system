@@ -1,0 +1,25 @@
+{
+  "name": "Event Lead Capture",
+  "short_name": "Leads",
+  "description": "Capture event leads with audio, photos, and visiting card scanning — works offline.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EAF0FB",
+  "theme_color": "#1B2A4A",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
