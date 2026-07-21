@@ -53,7 +53,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (ais
 # transient issue. Override via GEMINI_MODELS (comma-separated) if needed.
 # NOTE: gemini-2.0-flash was removed as the fallback — Google shut it down
 # on June 1, 2026 (production logs show 429 "limit: 0" for it).
-GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.5-flash-lite").split(",")
+GEMINI_MODELS = os.getenv("GEMINI_MODELS", os.getenv("GEMINI_MODEL", "gemini-flash-latest,gemini-2.5-flash-lite")).split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 if not GEMINI_API_KEY:
@@ -364,11 +364,12 @@ def save_lead_via_apps_script(
     photo_bytes: bytes,
     photo_filename: str,
     photo_mime_type: str,
+    card_photo_bytes: Optional[bytes],
+    card_photo_filename: Optional[str],
     transcript: str,
 ) -> dict:
     """Sends files + row data to the Apps Script Web App, which saves them
     to Drive and appends a row to Sheets under your own Google account."""
-    # (transcript is threaded through so it lands in its own Sheet column)
     if not APPS_SCRIPT_URL:
         raise HTTPException(
             status_code=500,
@@ -397,6 +398,12 @@ def save_lead_via_apps_script(
         "photo_mime_type": photo_mime_type,
         "transcript": transcript,
     }
+
+    # Card photo is optional — only include it when the rep scanned a card
+    if card_photo_bytes and card_photo_filename:
+        payload["card_photo_base64"] = base64.b64encode(card_photo_bytes).decode("utf-8")
+        payload["card_photo_filename"] = card_photo_filename
+        payload["card_photo_mime_type"] = "image/jpeg"
 
     try:
         resp = requests.post(APPS_SCRIPT_URL, json=payload, timeout=30)
@@ -452,37 +459,30 @@ async def scan_card(card: UploadFile = File(...)):
 @app.post("/api/submit-lead")
 async def submit_lead(
     rep_name: str = Form(...),
-    name: str = Form(...),
-    email: str = Form(...),
-    phone: str = Form(...),
-    company: str = Form(...),
-    industry: str = Form(...),
+    name: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    company: str = Form(""),
+    industry: str = Form(""),
     products: Optional[str] = Form(""),
     quantity: Optional[str] = Form("1"),
     audio: UploadFile = File(...),
     photo: UploadFile = File(...),
+    card_photo: Optional[UploadFile] = File(None),
     client_lead_id: Optional[str] = Form(None),
 ):
-    # If the frontend generated its own ID (used by the offline queue so a
-    # lead captured with no connection keeps the same ID whenever it later
-    # syncs), use that instead of minting a new one here.
     lead_id = (client_lead_id or str(uuid.uuid4()))[:8]
-    # India Standard Time is a fixed UTC+5:30 offset with no daylight saving,
-    # so a plain timedelta add is reliable here without needing pytz/zoneinfo
-    # tzdata bundled in the deploy.
     IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
     timestamp = (datetime.datetime.now(datetime.timezone.utc) + IST_OFFSET).strftime("%Y-%m-%d %H:%M:%S IST")
 
     audio_bytes = await audio.read()
     photo_bytes = await photo.read()
+    card_photo_bytes = await card_photo.read() if card_photo else None
 
-    audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
-    photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
+    audio_filename     = f"{lead_id}_audio.webm"
+    photo_filename     = f"{lead_id}_photo.jpg"
+    card_photo_filename = f"{lead_id}_card.jpg" if card_photo_bytes else None
 
-    # Summarize directly here, while we still have the raw bytes in memory.
-    # Field name stays "transcript" throughout (Apps Script/Sheets) for
-    # compatibility with the existing downstream setup — it just now holds a
-    # short summary instead of a full verbatim transcript.
     transcript = summarize_audio_with_gemini(
         audio_bytes, audio.content_type or "audio/webm"
     )
@@ -504,13 +504,16 @@ async def submit_lead(
         photo_bytes=photo_bytes,
         photo_filename=photo_filename,
         photo_mime_type=photo.content_type or "image/jpeg",
+        card_photo_bytes=card_photo_bytes,
+        card_photo_filename=card_photo_filename,
         transcript=transcript,
     )
 
     return {
         "status": "success",
         "lead_id": lead_id,
-        "audio_url": result["audio_url"],
-        "photo_url": result["photo_url"],
+        "audio_url": result.get("audio_url"),
+        "photo_url": result.get("photo_url"),
+        "card_photo_url": result.get("card_photo_url"),
         "transcript": transcript,
     }
