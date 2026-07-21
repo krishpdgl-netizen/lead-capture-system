@@ -4,245 +4,249 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <link rel="manifest" href="./manifest.json" />
-<meta name="theme-color" content="#0A0F1E" />
+<meta name="theme-color" content="#ffffff" />
 <link rel="apple-touch-icon" href="./icon-192.png" />
 <title>Lead Capture</title>
 <style>
-/* ── TOKENS ─────────────────────────────────────────── */
+/* ── ORIGINAL TOKENS — untouched ─────────────────────── */
 :root {
-  --bg:        #0A0F1E;
-  --surface:   rgba(255,255,255,0.05);
-  --border:    rgba(255,255,255,0.08);
-  --border-hi: rgba(255,255,255,0.16);
-  --text:      #F1F5F9;
-  --muted:     #64748B;
-  --accent:    #6366F1;
-  --accent-lo: rgba(99,102,241,0.15);
-  --success:   #10B981;
-  --success-lo:rgba(16,185,129,0.12);
-  --warn:      #F59E0B;
-  --danger:    #EF4444;
-  --danger-lo: rgba(239,68,68,0.12);
-  --radius:    16px;
-  --radius-sm: 10px;
+  --navy:   #1B2A4A;
+  --accent: #3E7BFA;
+  --ice:    #EAF0FB;
+  --gray:   #5B6472;
+  --green:  #2FA36B;
+  --red:    #D65A56;
 }
 
 /* ── RESET ───────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { height: 100%; }
+
 body {
-  min-height: 100%;
-  font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
-  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: #f5f7fa;
+  color: var(--navy);
   -webkit-font-smoothing: antialiased;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom, 24px);
 }
 
-/* ── LAYOUT ──────────────────────────────────────────── */
-.shell {
-  max-width: 480px;
+.wrap {
+  max-width: 520px;
   margin: 0 auto;
-  padding: 0 16px 80px;
+  padding: 0 16px 72px;
 }
 
 /* ── HEADER ──────────────────────────────────────────── */
-.topbar {
+.app-header {
+  padding: 20px 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 0 16px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 24px;
+  border-bottom: 1px solid #E4ECFA;
+  margin-bottom: 20px;
 }
-.topbar-brand {
-  font-size: 15px;
+.app-header-brand {
+  font-size: 16px;
   font-weight: 700;
+  color: var(--navy);
   letter-spacing: -.3px;
-  color: var(--text);
 }
-.topbar-brand span { color: var(--accent); }
-.topbar-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--muted);
+.app-header-brand span {
+  color: var(--accent);
 }
-.conn-pill {
+.app-header-right {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.conn-badge {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 4px 10px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: .3px;
-  text-transform: uppercase;
-  color: var(--success);
-  transition: color .2s;
+  color: var(--green);
+  letter-spacing: .1px;
 }
-.conn-pill.offline { color: var(--danger); }
+.conn-badge.offline { color: var(--red); }
 .conn-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
   background: currentColor;
+  flex-shrink: 0;
 }
-.rep-badge {
-  font-size: 12px;
-  color: var(--muted);
-}
-.rep-badge strong { color: var(--text); font-weight: 600; }
-.rep-switch {
+.rep-line {
   font-size: 11px;
+  color: var(--gray);
+}
+.rep-line strong { color: var(--navy); font-weight: 600; }
+.rep-line a {
   color: var(--accent);
   text-decoration: none;
   font-weight: 600;
-  letter-spacing: .2px;
+  margin-left: 6px;
 }
 
 /* ── SYNC BANNER ─────────────────────────────────────── */
 .sync-banner {
   display: none;
-  background: rgba(245,158,11,.08);
-  border: 1px solid rgba(245,158,11,.2);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  margin-bottom: 20px;
-  font-size: 13px;
-  color: var(--warn);
+  background: #FFF6E5;
+  border: 1px solid #F3D99A;
+  border-radius: 12px;
+  padding: 11px 14px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  color: #8A6100;
 }
 .sync-banner.show { display: block; }
 .sync-banner-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
 }
 .sync-now-btn {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: .4px;
-  text-transform: uppercase;
-  padding: 5px 12px;
+  padding: 5px 13px;
   border-radius: 20px;
-  border: 1px solid rgba(245,158,11,.4);
-  background: transparent;
-  color: var(--warn);
+  border: none;
+  background: #8A6100;
+  color: #fff;
   cursor: pointer;
+  white-space: nowrap;
+}
+.progress-track {
+  height: 4px;
+  background: #F3E3B8;
+  border-radius: 2px;
+  margin-top: 10px;
+  display: none;
+  overflow: hidden;
+}
+.progress-track.show { display: block; }
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #8A6100;
+  border-radius: 2px;
+  transition: width .15s;
 }
 
 /* ── STEPPER ─────────────────────────────────────────── */
 .stepper {
   display: flex;
-  align-items: center;
-  margin-bottom: 28px;
-  gap: 0;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding: 0 4px;
 }
 .step {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   position: relative;
 }
 .step::after {
   content: "";
   position: absolute;
-  top: 14px;
-  left: calc(50% + 14px);
-  right: calc(-50% + 14px);
+  top: 13px;
+  left: calc(50% + 16px);
+  right: calc(-50% + 16px);
   height: 1px;
-  background: var(--border);
-  transition: background .4s;
+  background: #DCE6F7;
+  transition: background .3s;
 }
 .step:last-child::after { display: none; }
-.step.done::after { background: var(--success); }
-.step-circle {
-  width: 28px; height: 28px;
+.step.done::after { background: var(--green); }
+.step-node {
+  width: 26px; height: 26px;
   border-radius: 50%;
-  border: 1.5px solid var(--border-hi);
+  border: 1.5px solid #DCE6F7;
+  background: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
-  color: var(--muted);
-  background: var(--bg);
-  transition: all .3s;
+  color: #B0BDD0;
+  transition: all .25s;
   position: relative;
   z-index: 1;
 }
-.step.active .step-circle {
+.step.active .step-node {
   border-color: var(--accent);
   color: var(--accent);
-  background: var(--accent-lo);
-  box-shadow: 0 0 0 4px rgba(99,102,241,.15);
+  background: var(--ice);
 }
-.step.done .step-circle {
-  border-color: var(--success);
-  background: var(--success-lo);
-  color: var(--success);
+.step.done .step-node {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
 }
-.step-label {
-  font-size: 9px;
+.step-name {
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: .5px;
+  color: #B0BDD0;
+  letter-spacing: .3px;
   text-transform: uppercase;
-  color: var(--muted);
-  text-align: center;
 }
-.step.active .step-label { color: var(--accent); }
-.step.done .step-label { color: var(--success); }
+.step.active .step-name { color: var(--accent); }
+.step.done .step-name { color: var(--green); }
 
 /* ── CARDS ───────────────────────────────────────────── */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: #fff;
+  border-radius: 16px;
   padding: 20px;
   margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgba(27,42,74,.06), 0 4px 16px rgba(27,42,74,.07);
+  border: 1px solid transparent;
   transition: border-color .2s;
 }
-.card.active-card {
-  border-color: var(--border-hi);
+.card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 1px 4px rgba(27,42,74,.06), 0 4px 20px rgba(62,123,250,.12);
 }
-.card-header {
+.card.is-done {
+  border-color: #C8EDD9;
+}
+
+.card-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 18px;
 }
 .card-icon {
-  width: 36px; height: 36px;
-  border-radius: 10px;
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: var(--ice);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
   flex-shrink: 0;
 }
-.card-icon.indigo { background: var(--accent-lo); }
-.card-icon.red    { background: var(--danger-lo); }
-.card-icon.green  { background: var(--success-lo); }
+.card-icon svg { display: block; }
+.a-icon svg { display: block; width: 22px; height: 22px; color: var(--navy); }
+.card-icon.green-bg { background: #E6F7EF; }
+.card-icon.red-bg   { background: #FAEAEA; }
 .card-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  color: var(--text);
-  letter-spacing: -.1px;
+  color: var(--navy);
+  letter-spacing: -.2px;
 }
 .card-sub {
-  font-size: 11px;
-  color: var(--muted);
+  font-size: 12px;
+  color: var(--gray);
   margin-top: 1px;
 }
 
 /* ── CAMERA / PREVIEW ────────────────────────────────── */
-video, .img-preview {
+video, img.preview {
   width: 100%;
-  border-radius: var(--radius-sm);
+  border-radius: 12px;
   display: none;
   margin-bottom: 12px;
   background: #000;
@@ -253,536 +257,519 @@ video, .img-preview {
 /* ── ACTION BUTTONS ──────────────────────────────────── */
 .action-btn {
   width: 100%;
-  padding: 0 16px;
-  height: 56px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  border: 1.5px solid #DCE6F7;
+  border-radius: 12px;
+  background: #fff;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 13px;
   cursor: pointer;
   transition: all .15s;
-  background: rgba(255,255,255,0.03);
-  color: var(--text);
-  text-align: left;
   -webkit-tap-highlight-color: transparent;
+  text-align: left;
 }
-.action-btn:active { transform: scale(.98); opacity: .85; }
-.action-btn .btn-icon {
-  font-size: 20px;
-  flex-shrink: 0;
-  width: 28px;
+.action-btn:active { transform: scale(.985); background: var(--ice); }
+.action-btn .a-icon {
+  font-size: 22px;
+  width: 32px;
   text-align: center;
+  flex-shrink: 0;
 }
-.action-btn .btn-text { flex: 1; }
-.action-btn .btn-label {
+.action-btn .a-body { flex: 1; }
+.action-btn .a-label {
   font-size: 14px;
   font-weight: 600;
+  color: var(--navy);
   display: block;
-  color: var(--text);
 }
-.action-btn .btn-hint {
-  font-size: 11px;
-  color: var(--muted);
+.action-btn .a-sub {
+  font-size: 11.5px;
+  color: var(--gray);
   display: block;
   margin-top: 1px;
 }
-.action-btn .btn-status-icon {
-  font-size: 16px;
+.action-btn .a-check {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  font-size: 12px;
+  display: none;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  width: 20px;
-  text-align: center;
+  font-weight: 700;
 }
 
-.action-btn.primary {
-  background: var(--accent);
+/* Button states */
+.action-btn.state-armed {
   border-color: var(--accent);
-  color: #fff;
+  background: var(--ice);
 }
-.action-btn.primary .btn-hint { color: rgba(255,255,255,.65); }
-.action-btn.danger {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: #fff;
+.action-btn.state-armed .a-label { color: var(--accent); }
+.action-btn.state-done {
+  border-color: #C8EDD9;
+  background: #F4FBF7;
 }
-.action-btn.danger .btn-hint { color: rgba(255,255,255,.65); }
-.action-btn.success-state {
-  border-color: var(--success);
-  background: var(--success-lo);
-}
-.action-btn.success-state .btn-label { color: var(--success); }
+.action-btn.state-done .a-label { color: var(--green); }
+.action-btn.state-done .a-check { display: flex; }
 
-/* Recording pulse ring */
-.action-btn.recording {
-  background: var(--danger);
-  border-color: var(--danger);
+/* Record / Stop */
+.record-btn {
+  width: 100%;
+  padding: 15px 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
   color: #fff;
-  animation: rec-ring 1.4s ease-in-out infinite;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  cursor: pointer;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
 }
-@keyframes rec-ring {
-  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.6); }
-  50%      { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+.record-btn .a-icon { font-size: 22px; width: 32px; text-align: center; flex-shrink: 0; }
+.record-btn .a-label { font-size: 14px; font-weight: 600; display: block; }
+.record-btn .a-sub   { font-size: 11.5px; opacity: .75; display: block; margin-top: 1px; }
+.record-btn.is-recording {
+  background: var(--red);
+  animation: ring 1.6s ease-in-out infinite;
 }
+@keyframes ring {
+  0%,100% { box-shadow: 0 0 0 0 rgba(214,90,86,.5); }
+  50%      { box-shadow: 0 0 0 7px rgba(214,90,86,0); }
+}
+.record-btn:active { transform: scale(.985); }
 
 /* ── STATUS ROW ──────────────────────────────────────── */
 .status-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--muted);
+  margin-top: 13px;
+  font-size: 12.5px;
+  color: var(--gray);
   min-height: 18px;
 }
-.status-dot {
-  width: 6px; height: 6px;
+.dot {
+  width: 8px; height: 8px;
   border-radius: 50%;
-  background: var(--border-hi);
+  background: #C7D3EA;
   flex-shrink: 0;
   transition: background .2s;
 }
-.status-dot.active { background: var(--accent); animation: blink 1s infinite; }
-.status-dot.done   { background: var(--success); animation: none; }
-.status-dot.warn   { background: var(--warn); }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.dot.active { background: var(--red); animation: pulse 1s infinite; }
+.dot.done   { background: var(--green); }
+.dot.warn   { background: #F59E0B; }
+@keyframes pulse { 50% { opacity: .3; } }
 
 /* ── EXTRACTED FIELDS ────────────────────────────────── */
-.extracted-block {
+.extracted {
   display: none;
   margin-top: 14px;
-  background: var(--success-lo);
-  border: 1px solid rgba(16,185,129,.2);
-  border-radius: var(--radius-sm);
+  background: #F4FBF7;
+  border: 1px solid #C8EDD9;
+  border-radius: 12px;
   padding: 14px;
 }
-.extracted-block.show { display: block; }
-.extracted-heading {
-  font-size: 10px;
+.extracted.show { display: block; }
+.extracted-head {
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: .6px;
+  color: var(--green);
+  letter-spacing: .4px;
   text-transform: uppercase;
-  color: var(--success);
   margin-bottom: 10px;
 }
 .ef-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  font-size: 13px;
   margin-bottom: 6px;
-  font-size: 12px;
 }
 .ef-row:last-child { margin-bottom: 0; }
 .ef-key {
-  min-width: 60px;
-  color: var(--muted);
+  min-width: 58px;
   font-weight: 600;
+  color: var(--gray);
   flex-shrink: 0;
+  font-size: 12px;
 }
-.ef-val { color: var(--text); word-break: break-all; }
+.ef-val { color: var(--navy); word-break: break-all; }
 
-/* ── AUDIO PLAYER ────────────────────────────────────── */
+/* ── AUDIO PREVIEW ───────────────────────────────────── */
 #audioPreview {
   width: 100%;
-  margin-top: 12px;
+  margin-top: 13px;
   display: none;
+  height: 38px;
   border-radius: 8px;
-  height: 36px;
 }
 
-/* ── PROGRESS BAR ────────────────────────────────────── */
-.prog-track {
-  height: 3px;
-  background: var(--border);
-  border-radius: 2px;
-  margin-top: 10px;
-  display: none;
-  overflow: hidden;
+/* ── SUBMIT ──────────────────────────────────────────── */
+.submit-wrap {
+  margin-top: 4px;
 }
-.prog-track.show { display: block; }
-.prog-fill {
+.submit-btn {
+  width: 100%;
+  padding: 17px;
+  border: none;
+  border-radius: 14px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.1px;
+  cursor: pointer;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.submit-btn:active { transform: scale(.985); }
+.submit-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+.submit-status {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+.submit-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--gray);
+}
+.submit-prog-track {
+  height: 4px;
+  background: #E4ECFA;
+  border-radius: 2px;
+  overflow: hidden;
+  display: none;
+}
+.submit-prog-track.show { display: block; }
+.submit-prog-fill {
   height: 100%;
   width: 0%;
   background: var(--accent);
   border-radius: 2px;
-  transition: width .2s;
-}
-
-/* ── SUBMIT BUTTON ───────────────────────────────────── */
-.submit-btn {
-  width: 100%;
-  height: 60px;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -.2px;
-  cursor: pointer;
-  transition: all .15s;
-  -webkit-tap-highlight-color: transparent;
-}
-.submit-btn:active { transform: scale(.98); }
-.submit-btn:disabled {
-  opacity: .4;
-  cursor: not-allowed;
-  transform: none;
+  transition: width .15s;
 }
 
 /* ── TOAST ───────────────────────────────────────────── */
 #toast {
   position: fixed;
-  bottom: calc(24px + env(safe-area-inset-bottom));
   left: 50%;
-  transform: translateX(-50%) translateY(16px);
-  background: rgba(15,20,40,.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-hi);
-  color: var(--text);
-  padding: 12px 20px;
-  border-radius: 24px;
-  font-size: 13px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%) translateY(10px);
+  background: var(--navy);
+  color: #fff;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-size: 13.5px;
   font-weight: 500;
   opacity: 0;
   pointer-events: none;
   transition: opacity .2s, transform .2s;
-  white-space: nowrap;
   z-index: 9999;
   max-width: 88vw;
   text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 4px 20px rgba(27,42,74,.25);
 }
-#toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-/* ── SUBMIT CARD ─────────────────────────────────────── */
-.submit-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  margin-bottom: 12px;
-}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.success { background: var(--green); }
+#toast.error   { background: var(--red); }
 </style>
 </head>
 <body>
-<div class="shell">
+<div class="wrap">
 
-  <!-- TOP BAR -->
-  <div class="topbar">
-    <div class="topbar-brand">Panache <span>Leads</span></div>
-    <div class="topbar-meta">
-      <div class="conn-pill" id="connPill">
+  <!-- HEADER -->
+  <header class="app-header">
+    <div class="app-header-brand">Panache <span>Leads</span></div>
+    <div class="app-header-right">
+      <span class="conn-badge" id="connBadge">
         <span class="conn-dot"></span>
         <span id="connLabel">Online</span>
-      </div>
-      <div class="rep-badge">
+      </span>
+      <span class="rep-line">
         <strong id="repNameDisplay">—</strong>
-        &nbsp;<a href="#" class="rep-switch" id="switchUserLink">Switch</a>
-      </div>
+        <a href="#" id="switchUserLink">Switch</a>
+      </span>
     </div>
-  </div>
+  </header>
 
   <!-- SYNC BANNER -->
   <div class="sync-banner" id="syncBanner">
     <div class="sync-banner-row">
-      <span id="syncBannerText">Leads pending sync</span>
+      <span id="syncBannerText">Leads waiting to sync</span>
       <button class="sync-now-btn" id="btnSyncNow">Sync now</button>
     </div>
-    <div class="prog-track show" id="syncProgressTrack" style="margin-top:10px;">
-      <div class="prog-fill" id="syncProgressFill"></div>
+    <div class="progress-track" id="syncProgressTrack">
+      <div class="progress-fill" id="syncProgressFill"></div>
     </div>
   </div>
 
   <!-- STEPPER -->
   <div class="stepper">
     <div class="step active" id="step1">
-      <div class="step-circle" id="sc1">1</div>
-      <div class="step-label">Card</div>
+      <div class="step-node" id="sn1">1</div>
+      <div class="step-name">Card</div>
     </div>
     <div class="step" id="step2">
-      <div class="step-circle" id="sc2">2</div>
-      <div class="step-label">Audio</div>
+      <div class="step-node" id="sn2">2</div>
+      <div class="step-name">Audio</div>
     </div>
     <div class="step" id="step3">
-      <div class="step-circle" id="sc3">3</div>
-      <div class="step-label">Photo</div>
+      <div class="step-node" id="sn3">3</div>
+      <div class="step-name">Photo</div>
     </div>
   </div>
 
-  <!-- STEP 1: CARD -->
-  <div class="card active-card" id="cardCard">
-    <div class="card-header">
-      <div class="card-icon indigo">&#128179;</div>
+  <!-- CARD: VISITING CARD -->
+  <div class="card is-active" id="cardCard">
+    <div class="card-head">
+      <div class="card-icon"><svg viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="14"><rect x="1" y="1" width="18" height="12" rx="2" stroke="#3E7BFA" stroke-width="1.5"/><rect x="1" y="4.5" width="18" height="2.5" fill="#3E7BFA" opacity=".4"/><rect x="3.5" y="8.5" width="5" height="1.5" rx=".75" fill="#3E7BFA"/></svg></div>
       <div>
         <div class="card-title">Visiting Card</div>
-        <div class="card-sub">Snap the card — details extract automatically</div>
+        <div class="card-sub">Snap the card — details fill in automatically</div>
       </div>
     </div>
 
     <video id="cardVideo" autoplay playsinline></video>
-    <img id="cardPreview" class="img-preview" alt="Card" />
+    <img class="preview" id="cardPreview" alt="Visiting card" />
 
     <button class="action-btn" id="btnScanCard">
-      <span class="btn-icon">&#128247;</span>
-      <span class="btn-text">
-        <span class="btn-label">Scan Card</span>
-        <span class="btn-hint">Opens rear camera</span>
+      <span class="a-icon"><svg viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="18"><path d="M7 2H4a2 2 0 0 0-2 2v1M13 2h3a2 2 0 0 1 2 2v1M2 13v1a2 2 0 0 0 2 2h1M18 13v1a2 2 0 0 1-2 2h-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="9.5" r="3" stroke="currentColor" stroke-width="1.5"/></svg></span>
+      <span class="a-body">
+        <span class="a-label">Scan Visiting Card</span>
+        <span class="a-sub">Opens rear camera</span>
       </span>
-      <span class="btn-status-icon" id="cardBtnIcon"></span>
+      <span class="a-check"></span>
     </button>
 
     <div class="status-row">
-      <span class="status-dot" id="cardDot"></span>
-      <span id="cardStatus">Waiting</span>
+      <span class="dot" id="cardDot"></span>
+      <span id="cardStatus">Ready to scan</span>
     </div>
 
-    <div class="extracted-block" id="extractedBlock">
-      <div class="extracted-heading">&#10003;&nbsp; Extracted — please verify</div>
-      <div class="ef-row" id="efRowName" style="display:none">
-        <span class="ef-key">Name</span><span class="ef-val" id="efName"></span>
-      </div>
-      <div class="ef-row" id="efRowEmail" style="display:none">
-        <span class="ef-key">Email</span><span class="ef-val" id="efEmail"></span>
-      </div>
-      <div class="ef-row" id="efRowPhone" style="display:none">
-        <span class="ef-key">Phone</span><span class="ef-val" id="efPhone"></span>
-      </div>
-      <div class="ef-row" id="efRowCompany" style="display:none">
-        <span class="ef-key">Company</span><span class="ef-val" id="efCompany"></span>
-      </div>
+    <div class="extracted" id="extractedBlock">
+      <div class="extracted-head">Extracted — please verify</div>
+      <div class="ef-row" id="efRowName"    style="display:none"><span class="ef-key">Name</span>   <span class="ef-val" id="efName"></span></div>
+      <div class="ef-row" id="efRowEmail"   style="display:none"><span class="ef-key">Email</span>  <span class="ef-val" id="efEmail"></span></div>
+      <div class="ef-row" id="efRowPhone"   style="display:none"><span class="ef-key">Phone</span>  <span class="ef-val" id="efPhone"></span></div>
+      <div class="ef-row" id="efRowCompany" style="display:none"><span class="ef-key">Company</span><span class="ef-val" id="efCompany"></span></div>
     </div>
   </div>
 
-  <!-- STEP 2: AUDIO -->
+  <!-- CARD: AUDIO -->
   <div class="card" id="audioCard">
-    <div class="card-header">
-      <div class="card-icon red">&#127908;</div>
+    <div class="card-head">
+      <div class="card-icon red-bg"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect x="7" y="2" width="6" height="9" rx="3" stroke="#D65A56" stroke-width="1.5"/><path d="M4 10a6 6 0 0 0 12 0" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="16" x2="10" y2="19" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="19" x2="13" y2="19" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/></svg></div>
       <div>
         <div class="card-title">Conversation</div>
-        <div class="card-sub">Record while you talk with the customer</div>
+        <div class="card-sub">Record while speaking with the customer</div>
       </div>
     </div>
 
-    <button class="action-btn primary" id="btnRecord">
-      <span class="btn-icon">&#9679;</span>
-      <span class="btn-text">
-        <span class="btn-label">Start Recording</span>
-        <span class="btn-hint">Tap to begin</span>
+    <button class="record-btn" id="btnRecord">
+      <span class="a-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="5" fill="currentColor"/></svg></span>
+      <span class="a-body">
+        <span class="a-label">Start Recording</span>
+        <span class="a-sub">Tap to begin</span>
       </span>
     </button>
-    <button class="action-btn recording" id="btnStop" style="display:none;">
-      <span class="btn-icon">&#9209;</span>
-      <span class="btn-text">
-        <span class="btn-label">Stop Recording</span>
-        <span class="btn-hint">Tap when conversation ends</span>
+    <button class="record-btn is-recording" id="btnStop" style="display:none">
+      <span class="a-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/></svg></span>
+      <span class="a-body">
+        <span class="a-label">Stop Recording</span>
+        <span class="a-sub">Tap when conversation ends</span>
       </span>
     </button>
 
     <div class="status-row">
-      <span class="status-dot" id="audioDot"></span>
-      <span id="audioStatus">Waiting</span>
+      <span class="dot" id="audioDot"></span>
+      <span id="audioStatus">Ready to record</span>
     </div>
     <audio id="audioPreview" controls></audio>
   </div>
 
-  <!-- STEP 3: PHOTO -->
+  <!-- CARD: PHOTO -->
   <div class="card" id="photoCard">
-    <div class="card-header">
-      <div class="card-icon green">&#128100;</div>
+    <div class="card-head">
+      <div class="card-icon green-bg"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="7" r="3.5" stroke="#2FA36B" stroke-width="1.5"/><path d="M3.5 17c0-3.314 2.91-6 6.5-6s6.5 2.686 6.5 6" stroke="#2FA36B" stroke-width="1.5" stroke-linecap="round"/></svg></div>
       <div>
         <div class="card-title">Customer Photo</div>
-        <div class="card-sub">Optional — helps identify the lead later</div>
+        <div class="card-sub">Optional — helps identify the lead</div>
       </div>
     </div>
 
     <video id="photoVideo" autoplay playsinline></video>
-    <img id="photoPreview" class="img-preview" alt="Customer" />
+    <img class="preview" id="photoPreview" alt="Customer" />
 
     <button class="action-btn" id="btnPhoto">
-      <span class="btn-icon">&#128247;</span>
-      <span class="btn-text">
-        <span class="btn-label">Capture Photo</span>
-        <span class="btn-hint">Opens rear camera</span>
+      <span class="a-icon"><svg viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="18"><path d="M7 2H4a2 2 0 0 0-2 2v1M13 2h3a2 2 0 0 1 2 2v1M2 13v1a2 2 0 0 0 2 2h1M18 13v1a2 2 0 0 1-2 2h-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="9.5" r="3" stroke="currentColor" stroke-width="1.5"/></svg></span>
+      <span class="a-body">
+        <span class="a-label">Capture Photo</span>
+        <span class="a-sub">Opens rear camera</span>
       </span>
-      <span class="btn-status-icon" id="photoBtnIcon"></span>
+      <span class="a-check"></span>
     </button>
 
     <div class="status-row">
-      <span class="status-dot" id="photoDot"></span>
-      <span id="photoStatus">Waiting</span>
+      <span class="dot" id="photoDot"></span>
+      <span id="photoStatus">Ready</span>
     </div>
   </div>
 
   <!-- SUBMIT -->
-  <div class="submit-card">
-    <button class="submit-btn" id="btnSubmit">Submit Lead</button>
-    <div class="status-row" id="submitStatusRow" style="display:none; margin-top:14px;">
-      <span class="status-dot" id="submitDot"></span>
-      <span id="submitStatus">Uploading...</span>
-    </div>
-    <div class="prog-track" id="submitProgressTrack">
-      <div class="prog-fill" id="submitProgressFill"></div>
+  <div class="submit-wrap">
+    <button class="submit-btn" id="btnSubmit">
+      Submit Lead
+    </button>
+    <div class="submit-status" id="submitStatus">
+      <div class="submit-status-row">
+        <span class="dot" id="submitDot"></span>
+        <span id="submitStatusText">Uploading…</span>
+      </div>
+      <div class="submit-prog-track" id="submitProgTrack">
+        <div class="submit-prog-fill" id="submitProgFill"></div>
+      </div>
     </div>
   </div>
 
-</div><!-- /shell -->
-
+</div>
 <div id="toast"></div>
 
 <script>
-/* ── SERVICE WORKER ─────────────────────────────────── */
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () =>
-    navigator.serviceWorker.register("./sw.js").catch(console.error)
-  );
-}
+/* ── SERVICE WORKER ─────────────────────────────── */
+if ("serviceWorker" in navigator)
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(console.error));
 
 const API_BASE = window.LEAD_CAPTURE_API_BASE || "https://lead-capture-system-xxfp.onrender.com";
 
-/* ── AUTH ───────────────────────────────────────────── */
-const REP_NAME_KEY = "lead_capture_rep_name";
-const repName = localStorage.getItem(REP_NAME_KEY);
+/* ── AUTH ─────────────────────────────────────── */
+const REP_KEY = "lead_capture_rep_name";
+const repName = localStorage.getItem(REP_KEY);
 if (!repName) location.href = "index.html";
 document.getElementById("repNameDisplay").textContent = repName || "";
-document.getElementById("switchUserLink").addEventListener("click", (e) => {
-  e.preventDefault();
-  localStorage.removeItem(REP_NAME_KEY);
-  location.href = "index.html";
+document.getElementById("switchUserLink").addEventListener("click", e => {
+  e.preventDefault(); localStorage.removeItem(REP_KEY); location.href = "index.html";
 });
 
-/* ── TOAST ──────────────────────────────────────────── */
+/* ── TOAST ─────────────────────────────────────── */
 const toastEl = document.getElementById("toast");
-let toastTimer;
-function toast(msg, type = "info") {
+let _tt;
+function toast(msg, type="info") {
   toastEl.textContent = msg;
-  toastEl.style.borderColor = type === "error" ? "rgba(239,68,68,.3)"
-    : type === "success" ? "rgba(16,185,129,.3)" : "var(--border-hi)";
+  toastEl.className = type === "error" ? "error" : type === "success" ? "success" : "";
   toastEl.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3200);
+  clearTimeout(_tt);
+  _tt = setTimeout(() => toastEl.classList.remove("show"), 3200);
 }
 
-/* ── STEPPER ────────────────────────────────────────── */
-function updateStepper(cardDone, audioDone, photoDone) {
+/* ── STEPPER ─────────────────────────────────── */
+function stepper(c, a, p) {
   const steps = [
-    { el: document.getElementById("step1"), done: cardDone, isNext: !cardDone },
-    { el: document.getElementById("step2"), done: audioDone, isNext: cardDone && !audioDone },
-    { el: document.getElementById("step3"), done: photoDone, isNext: audioDone && !photoDone },
+    [document.getElementById("step1"), document.getElementById("sn1"), c],
+    [document.getElementById("step2"), document.getElementById("sn2"), a],
+    [document.getElementById("step3"), document.getElementById("sn3"), p],
   ];
-  steps.forEach(({ el, done, isNext }, i) => {
-    el.className = "step" + (done ? " done" : isNext ? " active" : "");
-    const circle = document.getElementById("sc" + (i + 1));
-    circle.textContent = done ? "✓" : String(i + 1);
+  const nextIdx = steps.findIndex(([,,done]) => !done);
+  steps.forEach(([el, node, done], i) => {
+    el.className = "step" + (done ? " done" : i === nextIdx ? " active" : "");
+    node.textContent = done ? "✓" : String(i + 1);
   });
-  // highlight the active card
-  ["cardCard","audioCard","photoCard"].forEach((id, i) => {
-    const isActive = steps[i].isNext || (i === 0 && !cardDone);
-    document.getElementById(id).classList.toggle("active-card", isActive);
+  // card borders
+  const cards = ["cardCard","audioCard","photoCard"];
+  cards.forEach((id, i) => {
+    const el = document.getElementById(id);
+    const done = steps[i][2];
+    const isNext = i === nextIdx;
+    el.className = "card" + (done ? " is-done" : isNext ? " is-active" : "");
   });
 }
-updateStepper(false, false, false);
+stepper(false, false, false);
 
-/* ── INDEXEDDB QUEUE ────────────────────────────────── */
-const DB_NAME = "lead_capture_offline", DB_VER = 1, STORE = "queue";
+/* ── INDEXEDDB QUEUE ─────────────────────────── */
 function openDB() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB_NAME, DB_VER);
-    r.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { keyPath: "id" });
+  return new Promise((res,rej) => {
+    const r = indexedDB.open("lead_capture_offline", 1);
+    r.onupgradeneeded = e => e.target.result.createObjectStore("queue", { keyPath:"id" });
     r.onsuccess = e => res(e.target.result);
-    r.onerror   = () => rej(r.error);
+    r.onerror = () => rej(r.error);
   });
 }
-async function qAdd(rec) {
-  const db = await openDB();
-  return new Promise((res,rej) => {
-    const tx = db.transaction(STORE,"readwrite");
-    tx.objectStore(STORE).put(rec);
-    tx.oncomplete = res; tx.onerror = ()=>rej(tx.error);
-  });
-}
-async function qAll() {
-  const db = await openDB();
-  return new Promise((res,rej) => {
-    const r = db.transaction(STORE,"readonly").objectStore(STORE).getAll();
-    r.onsuccess = () => res(r.result||[]); r.onerror=()=>rej(r.error);
-  });
-}
-async function qDel(id) {
-  const db = await openDB();
-  return new Promise((res,rej) => {
-    const tx = db.transaction(STORE,"readwrite");
-    tx.objectStore(STORE).delete(id);
-    tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
-  });
-}
-function uid() {
-  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
+async function qAdd(rec)  { const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction("queue","readwrite"); tx.objectStore("queue").put(rec); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }
+async function qAll()     { const db=await openDB(); return new Promise((res,rej)=>{ const r=db.transaction("queue","readonly").objectStore("queue").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
+async function qDel(id)   { const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction("queue","readwrite"); tx.objectStore("queue").delete(id); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }
+function uid() { return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
-/* ── CONNECTION ─────────────────────────────────────── */
-const connPill = document.getElementById("connPill");
-const connLabel = document.getElementById("connLabel");
+/* ── CONNECTION ──────────────────────────────── */
+const connBadge = document.getElementById("connBadge");
 const syncBanner = document.getElementById("syncBanner");
-const syncBannerText = document.getElementById("syncBannerText");
+const syncText = document.getElementById("syncBannerText");
+const syncFill = document.getElementById("syncProgressFill");
+const syncTrack = document.getElementById("syncProgressTrack");
 
-function setConnUI(online) {
-  connPill.className = "conn-pill" + (online ? "" : " offline");
-  connLabel.textContent = online ? "Online" : "Offline";
+function setConn(online) {
+  connBadge.className = "conn-badge" + (online ? "" : " offline");
+  document.getElementById("connLabel").textContent = online ? "Online" : "Offline";
   document.body.style.overscrollBehaviorY = online ? "auto" : "contain";
 }
 async function refreshBanner() {
   const q = await qAll().catch(()=>[]);
   syncBanner.classList.toggle("show", q.length > 0);
-  if (q.length > 0) syncBannerText.textContent = `${q.length} lead${q.length>1?"s":""} waiting to sync`;
+  if (q.length) syncText.textContent = `${q.length} lead${q.length>1?"s":""} waiting to sync`;
 }
 
-/* ── SEND TO BACKEND ────────────────────────────────── */
+/* ── SEND ─────────────────────────────────────── */
 function sendToBackend(rec, onProg) {
   return new Promise((res,rej) => {
     const fd = new FormData();
     fd.append("client_lead_id", rec.id);
-    fd.append("rep_name", rec.repName||"");
-    fd.append("name",     rec.name||"");
-    fd.append("email",    rec.email||"");
-    fd.append("phone",    rec.phone||"");
-    fd.append("company",  rec.company||"");
-    fd.append("industry", rec.industry||"");
-    fd.append("products", rec.products||"");
-    fd.append("quantity", rec.quantity||"1");
-    fd.append("audio",    rec.audioBlob, "conversation.webm");
-    fd.append("photo",    rec.photoBlob, "customer.jpg");
+    fd.append("rep_name",  rec.repName||"");
+    fd.append("name",      rec.name||"");
+    fd.append("email",     rec.email||"");
+    fd.append("phone",     rec.phone||"");
+    fd.append("company",   rec.company||"");
+    fd.append("industry",  "");
+    fd.append("products",  "");
+    fd.append("quantity",  "1");
+    fd.append("audio",     rec.audioBlob, "conversation.webm");
+    fd.append("photo",     rec.photoBlob, "customer.jpg");
     if (rec.cardBlob) fd.append("card_photo", rec.cardBlob, "visiting_card.jpg");
-
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_BASE}/api/submit-lead`);
     xhr.upload.onprogress = e => { if (e.lengthComputable && onProg) onProg(Math.round(e.loaded/e.total*100)); };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) { try{res(JSON.parse(xhr.responseText))}catch{res({})} }
-      else rej(new Error(xhr.responseText || `HTTP ${xhr.status}`));
-    };
+    xhr.onload = () => { if (xhr.status>=200&&xhr.status<300){try{res(JSON.parse(xhr.responseText))}catch{res({})}}else rej(new Error(xhr.responseText||`HTTP ${xhr.status}`)); };
     xhr.onerror = () => rej(new Error("Network error"));
     xhr.send(fd);
   });
 }
 
-/* ── SYNC QUEUE ─────────────────────────────────────── */
-const syncFill = document.getElementById("syncProgressFill");
-const syncTrack = document.getElementById("syncProgressTrack");
+/* ── SYNC ─────────────────────────────────────── */
 let syncing = false;
 async function syncQueue({ silent=true }={}) {
-  if (syncing || !navigator.onLine) { await refreshBanner(); return; }
+  if (syncing||!navigator.onLine) { await refreshBanner(); return; }
   syncing = true;
   try {
-    const q = await qAll(), total = q.length;
-    let sent = 0;
+    const q = await qAll(), total = q.length; let sent=0;
     for (let i=0; i<total; i++) {
       try {
         await sendToBackend(q[i], pct => {
-          const overall = Math.round((i+pct/100)/total*100);
-          syncFill.style.width = overall+"%";
-          syncBannerText.textContent = `Syncing ${i+1}/${total} — ${overall}%`;
+          const ov = Math.round((i+pct/100)/total*100);
+          syncFill.style.width = ov+"%";
+          syncTrack.classList.add("show");
+          syncText.textContent = `Syncing ${i+1}/${total} — ${ov}%`;
         });
         await qDel(q[i].id); sent++;
         syncFill.style.width = Math.round((i+1)/total*100)+"%";
@@ -790,65 +777,53 @@ async function syncQueue({ silent=true }={}) {
     }
     if (sent && !silent) toast(`${sent} lead${sent>1?"s":""} synced`, "success");
   } finally {
-    syncing = false;
-    syncFill.style.width = "0%";
+    syncing=false; syncTrack.classList.remove("show"); syncFill.style.width="0%";
     await refreshBanner();
   }
 }
-window.addEventListener("online",  ()=>{ setConnUI(true);  syncQueue({silent:false}); });
-window.addEventListener("offline", ()=> setConnUI(false));
-document.getElementById("btnSyncNow").addEventListener("click", ()=> syncQueue({silent:false}));
-setInterval(()=> syncQueue(), 20000);
-setConnUI(navigator.onLine);
-refreshBanner();
+window.addEventListener("online",  () => { setConn(true);  syncQueue({silent:false}); });
+window.addEventListener("offline", () => setConn(false));
+document.getElementById("btnSyncNow").addEventListener("click", () => syncQueue({silent:false}));
+setInterval(() => syncQueue(), 20000);
+setConn(navigator.onLine); refreshBanner();
 if (navigator.onLine) syncQueue();
 
-/* ── STATE ──────────────────────────────────────────── */
-let cardBlob=null, cardExtracted={};
-let audioBlob=null;
-let photoBlob=null;
+/* ── STATE ─────────────────────────────────────── */
+let cardBlob=null, cardExtracted={}, audioBlob=null, photoBlob=null;
 
-/* ── STEP 1: CARD ───────────────────────────────────── */
-const btnScanCard    = document.getElementById("btnScanCard");
-const cardVideo      = document.getElementById("cardVideo");
-const cardPreview    = document.getElementById("cardPreview");
-const cardDot        = document.getElementById("cardDot");
-const cardStatusEl   = document.getElementById("cardStatus");
-const cardBtnIcon    = document.getElementById("cardBtnIcon");
-const extractedBlock = document.getElementById("extractedBlock");
+/* ── STEP 1: CARD ───────────────────────────── */
+const btnScanCard = document.getElementById("btnScanCard");
+const cardVideo   = document.getElementById("cardVideo");
+const cardPreview = document.getElementById("cardPreview");
+const cardDot     = document.getElementById("cardDot");
+const cardSt      = document.getElementById("cardStatus");
+const extBlock    = document.getElementById("extractedBlock");
 let cardStream=null, cardArmed=false;
 
 function showExtracted(f) {
-  const rows = [
-    ["efRowName","efName",f.name],
-    ["efRowEmail","efEmail",f.email],
-    ["efRowPhone","efPhone",f.phone],
-    ["efRowCompany","efCompany",f.company],
-  ];
-  let any = false;
-  rows.forEach(([rowId,valId,val]) => {
-    const show = !!val;
-    document.getElementById(rowId).style.display = show ? "flex" : "none";
-    if (show) { document.getElementById(valId).textContent = val; any = true; }
+  [["efRowName","efName",f.name],["efRowEmail","efEmail",f.email],
+   ["efRowPhone","efPhone",f.phone],["efRowCompany","efCompany",f.company]
+  ].forEach(([rid,vid,val]) => {
+    document.getElementById(rid).style.display = val ? "flex" : "none";
+    if (val) document.getElementById(vid).textContent = val;
   });
-  if (any) extractedBlock.classList.add("show");
+  if (Object.values(f).some(Boolean)) extBlock.classList.add("show");
 }
 
 btnScanCard.addEventListener("click", async () => {
   if (!cardArmed) {
     try {
-      cardStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" } });
+      cardStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
       cardVideo.srcObject = cardStream;
       cardVideo.style.display = "block";
       cardPreview.style.display = "none";
       cardArmed = true;
-      btnScanCard.querySelector(".btn-label").textContent = "Snap Card";
-      btnScanCard.querySelector(".btn-hint").textContent = "Point at card, then tap";
-      btnScanCard.classList.add("primary");
+      btnScanCard.querySelector(".a-label").textContent = "Snap Card";
+      btnScanCard.querySelector(".a-sub").textContent   = "Point at card, then tap";
+      btnScanCard.classList.add("state-armed");
     } catch { toast("Camera access denied.", "error"); }
     return;
   }
-  // Snap
   const cv = document.createElement("canvas");
   cv.width=cardVideo.videoWidth; cv.height=cardVideo.videoHeight;
   cv.getContext("2d").drawImage(cardVideo,0,0);
@@ -859,85 +834,75 @@ btnScanCard.addEventListener("click", async () => {
     cardVideo.style.display = "none";
     cardStream.getTracks().forEach(t=>t.stop());
     cardArmed = false;
-    btnScanCard.classList.remove("primary");
-    btnScanCard.querySelector(".btn-label").textContent = "Rescan Card";
-    btnScanCard.querySelector(".btn-hint").textContent = "Tap to replace";
-    btnScanCard.classList.add("success-state");
-    cardBtnIcon.textContent = "✓";
-    cardDot.className = "status-dot active";
-    cardStatusEl.textContent = "Reading…";
+    btnScanCard.className = "action-btn state-done";
+    btnScanCard.querySelector(".a-label").textContent = "Rescan Card";
+    btnScanCard.querySelector(".a-sub").textContent   = "Tap to replace";
+    cardDot.className = "dot active";
+    cardSt.textContent = "Reading card…";
 
     if (navigator.onLine) {
       try {
-        const fd = new FormData();
-        fd.append("card", blob, "card.jpg");
-        const resp = await fetch(`${API_BASE}/api/scan-card`,{method:"POST",body:fd});
-        const data = await resp.json();
-        if (data.status==="success" && data.fields) {
-          cardExtracted = data.fields;
-          const n = Object.values(data.fields).filter(Boolean).length;
-          cardDot.className = "status-dot done";
-          cardStatusEl.textContent = n ? `${n} detail${n>1?"s":""} extracted — please verify` : "Card saved — no text read";
-          if (n) { showExtracted(data.fields); }
+        const fd = new FormData(); fd.append("card", blob, "card.jpg");
+        const d = await (await fetch(`${API_BASE}/api/scan-card`,{method:"POST",body:fd})).json();
+        if (d.status==="success" && d.fields) {
+          cardExtracted = d.fields;
+          const n = Object.values(d.fields).filter(Boolean).length;
+          cardDot.className = "dot done";
+          cardSt.textContent = n ? `${n} detail${n>1?"s":""} extracted — please verify` : "Card saved";
+          if (n) showExtracted(d.fields);
         } else {
-          cardDot.className = "status-dot warn";
-          cardStatusEl.textContent = "Card saved — couldn't read text";
+          cardDot.className = "dot warn"; cardSt.textContent = "Card saved — text not readable";
         }
       } catch {
-        cardDot.className = "status-dot warn";
-        cardStatusEl.textContent = "Saved — will extract on next sync";
+        cardDot.className = "dot done"; cardSt.textContent = "Saved offline — uploads with lead";
       }
     } else {
-      cardDot.className = "status-dot done";
-      cardStatusEl.textContent = "Saved offline — uploads when online";
+      cardDot.className = "dot done"; cardSt.textContent = "Card saved — uploads when online";
     }
-    updateStepper(true, !!audioBlob, !!photoBlob);
+    stepper(true, !!audioBlob, !!photoBlob);
   }, "image/jpeg", 0.92);
 });
 
-/* ── STEP 2: AUDIO ──────────────────────────────────── */
-let mediaRecorder, audioChunks=[];
-const btnRecord   = document.getElementById("btnRecord");
-const btnStop     = document.getElementById("btnStop");
-const audioDot    = document.getElementById("audioDot");
-const audioStatusEl = document.getElementById("audioStatus");
-const audioPreview  = document.getElementById("audioPreview");
+/* ── STEP 2: AUDIO ──────────────────────────── */
+let mr, chunks=[];
+const btnRecord = document.getElementById("btnRecord");
+const btnStop   = document.getElementById("btnStop");
+const audioDot  = document.getElementById("audioDot");
+const audioSt   = document.getElementById("audioStatus");
+const audioPreview = document.getElementById("audioPreview");
 
 btnRecord.addEventListener("click", async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    audioChunks = [];
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => { if(e.data.size>0) audioChunks.push(e.data); };
-    mediaRecorder.onstop = () => {
-      audioBlob = new Blob(audioChunks,{type:"audio/webm"});
+    chunks=[];
+    mr = new MediaRecorder(stream);
+    mr.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); };
+    mr.onstop = () => {
+      audioBlob = new Blob(chunks,{type:"audio/webm"});
       audioPreview.src = URL.createObjectURL(audioBlob);
       audioPreview.style.display = "block";
-      audioDot.className = "status-dot done";
-      audioStatusEl.textContent = "Recording saved";
+      audioDot.className = "dot done";
+      audioSt.textContent = "Recording saved";
       stream.getTracks().forEach(t=>t.stop());
-      updateStepper(!!cardBlob, true, !!photoBlob);
+      stepper(!!cardBlob, true, !!photoBlob);
     };
-    mediaRecorder.start();
-    audioDot.className = "status-dot active";
-    audioStatusEl.textContent = "Recording…";
-    btnRecord.style.display = "none";
-    btnStop.style.display   = "flex";
+    mr.start();
+    audioDot.className = "dot active";
+    audioSt.textContent = "Recording…";
+    btnRecord.style.display="none"; btnStop.style.display="flex";
   } catch { toast("Microphone access denied.", "error"); }
 });
 btnStop.addEventListener("click", () => {
-  if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-  btnRecord.style.display = "flex";
-  btnStop.style.display   = "none";
+  if (mr && mr.state!=="inactive") mr.stop();
+  btnRecord.style.display="flex"; btnStop.style.display="none";
 });
 
-/* ── STEP 3: PHOTO ──────────────────────────────────── */
-const btnPhoto      = document.getElementById("btnPhoto");
-const photoVideo    = document.getElementById("photoVideo");
-const photoPreview  = document.getElementById("photoPreview");
-const photoDot      = document.getElementById("photoDot");
-const photoStatusEl = document.getElementById("photoStatus");
-const photoBtnIcon  = document.getElementById("photoBtnIcon");
+/* ── STEP 3: PHOTO ──────────────────────────── */
+const btnPhoto     = document.getElementById("btnPhoto");
+const photoVideo   = document.getElementById("photoVideo");
+const photoPreview = document.getElementById("photoPreview");
+const photoDot     = document.getElementById("photoDot");
+const photoSt      = document.getElementById("photoStatus");
 let photoStream=null, photoArmed=false;
 
 btnPhoto.addEventListener("click", async () => {
@@ -948,9 +913,9 @@ btnPhoto.addEventListener("click", async () => {
       photoVideo.style.display = "block";
       photoPreview.style.display = "none";
       photoArmed = true;
-      btnPhoto.querySelector(".btn-label").textContent = "Snap Photo";
-      btnPhoto.querySelector(".btn-hint").textContent = "Point at customer, then tap";
-      btnPhoto.classList.add("primary");
+      btnPhoto.querySelector(".a-label").textContent = "Snap Photo";
+      btnPhoto.querySelector(".a-sub").textContent   = "Point at customer, then tap";
+      btnPhoto.classList.add("state-armed");
     } catch { toast("Camera access denied.", "error"); }
     return;
   }
@@ -960,81 +925,68 @@ btnPhoto.addEventListener("click", async () => {
   cv.toBlob(blob => {
     photoBlob = blob;
     photoPreview.src = URL.createObjectURL(blob);
-    photoPreview.style.display = "block";
-    photoVideo.style.display   = "none";
-    photoStream.getTracks().forEach(t=>t.stop());
-    photoArmed = false;
-    btnPhoto.classList.remove("primary");
-    btnPhoto.classList.add("success-state");
-    btnPhoto.querySelector(".btn-label").textContent = "Retake Photo";
-    btnPhoto.querySelector(".btn-hint").textContent  = "Tap to replace";
-    photoBtnIcon.textContent = "✓";
-    photoDot.className = "status-dot done";
-    photoStatusEl.textContent = "Photo captured";
-    updateStepper(!!cardBlob, !!audioBlob, true);
+    photoPreview.style.display="block"; photoVideo.style.display="none";
+    photoStream.getTracks().forEach(t=>t.stop()); photoArmed=false;
+    btnPhoto.className = "action-btn state-done";
+    btnPhoto.querySelector(".a-label").textContent = "Retake Photo";
+    btnPhoto.querySelector(".a-sub").textContent   = "Tap to replace";
+    photoDot.className = "dot done"; photoSt.textContent = "Photo captured";
+    stepper(!!cardBlob, !!audioBlob, true);
   }, "image/jpeg", 0.9);
 });
 
-/* ── SUBMIT ─────────────────────────────────────────── */
+/* ── SUBMIT ─────────────────────────────────── */
 const btnSubmit   = document.getElementById("btnSubmit");
-const submitRow   = document.getElementById("submitStatusRow");
-const submitDot   = document.getElementById("submitDot");
 const submitSt    = document.getElementById("submitStatus");
-const submitTrack = document.getElementById("submitProgressTrack");
-const submitFill  = document.getElementById("submitProgressFill");
+const submitDot   = document.getElementById("submitDot");
+const submitStTxt = document.getElementById("submitStatusText");
+const submitTrack = document.getElementById("submitProgTrack");
+const submitFill  = document.getElementById("submitProgFill");
+
+function setSubProg(pct) {
+  submitTrack.classList.add("show"); submitFill.style.width=pct+"%";
+  submitStTxt.textContent = pct < 100 ? `Uploading — ${pct}%` : "Uploaded";
+}
 
 btnSubmit.addEventListener("click", async () => {
   if (!audioBlob) { toast("Please record the conversation first.", "error"); return; }
-
-  btnSubmit.disabled = true;
-  submitRow.style.display = "flex";
-  submitDot.className = "status-dot active";
-  submitSt.textContent = "Saving…";
+  btnSubmit.disabled=true; submitSt.style.display="flex";
+  submitDot.className="dot active"; submitStTxt.textContent="Saving lead…";
 
   const rec = {
-    id: uid(),
-    repName: repName||"",
-    name:    cardExtracted.name   ||"",
-    email:   cardExtracted.email  ||"",
-    phone:   cardExtracted.phone  ||"",
-    company: cardExtracted.company||"",
-    industry:"", products:"", quantity:"1",
+    id: uid(), repName: repName||"",
+    name: cardExtracted.name||"", email: cardExtracted.email||"",
+    phone: cardExtracted.phone||"", company: cardExtracted.company||"",
     audioBlob,
     photoBlob: photoBlob || cardBlob || new Blob([],{type:"image/jpeg"}),
-    cardBlob:  cardBlob||null,
+    cardBlob: cardBlob||null,
   };
 
   if (!navigator.onLine) {
     await qAdd(rec); await refreshBanner();
-    submitDot.className = "status-dot done";
-    submitSt.textContent = "Saved — will sync when online";
-    toast("Lead saved offline — syncs automatically.", "success");
-    setTimeout(reset, 2400);
-    return;
+    submitDot.className="dot done";
+    submitStTxt.textContent="Saved — will sync when online";
+    toast("Lead saved. Will sync automatically.", "success");
+    setTimeout(reset, 2400); return;
   }
 
-  submitTrack.classList.add("show"); submitFill.style.width="0%";
   try {
-    await sendToBackend(rec, pct => {
-      submitFill.style.width=pct+"%";
-      submitSt.textContent=`Uploading — ${pct}%`;
-    });
-    submitFill.style.width="100%";
-    submitDot.className="status-dot done";
-    submitSt.textContent="Lead submitted";
+    await sendToBackend(rec, pct => setSubProg(pct));
+    setSubProg(100); submitDot.className="dot done";
+    submitStTxt.textContent="Lead submitted";
     toast("Lead captured successfully.", "success");
     setTimeout(reset, 2400);
   } catch {
     submitTrack.classList.remove("show");
     await qAdd(rec); await refreshBanner();
-    submitDot.className="status-dot done";
-    submitSt.textContent="Saved — will sync when online";
+    submitDot.className="dot done";
+    submitStTxt.textContent="Saved — will sync when online";
     toast("Offline — lead saved, will sync automatically.", "success");
     setTimeout(reset, 2400);
   }
 });
 
-/* ── RESET ──────────────────────────────────────────── */
+/* ── RESET ──────────────────────────────────── */
 function reset() {
   cardBlob=null; cardExtracted={};
   cardPreview.style.display="none"; cardPreview.removeAttribute("src");
@@ -1042,16 +994,15 @@ function reset() {
   if(cardStream){cardStream.getTracks().forEach(t=>t.stop());cardStream=null;}
   cardArmed=false;
   btnScanCard.className="action-btn";
-  btnScanCard.querySelector(".btn-label").textContent="Scan Card";
-  btnScanCard.querySelector(".btn-hint").textContent="Opens rear camera";
-  cardBtnIcon.textContent="";
-  cardDot.className="status-dot"; cardStatusEl.textContent="Waiting";
-  extractedBlock.classList.remove("show");
+  btnScanCard.querySelector(".a-label").textContent="Scan Visiting Card";
+  btnScanCard.querySelector(".a-sub").textContent="Opens rear camera";
+  cardDot.className="dot"; cardSt.textContent="Ready to scan";
+  extBlock.classList.remove("show");
   ["efRowName","efRowEmail","efRowPhone","efRowCompany"].forEach(id=>document.getElementById(id).style.display="none");
 
   audioBlob=null;
   audioPreview.style.display="none"; audioPreview.removeAttribute("src");
-  audioDot.className="status-dot"; audioStatusEl.textContent="Waiting";
+  audioDot.className="dot"; audioSt.textContent="Ready to record";
   btnRecord.style.display="flex"; btnStop.style.display="none";
 
   photoBlob=null;
@@ -1060,15 +1011,13 @@ function reset() {
   if(photoStream){photoStream.getTracks().forEach(t=>t.stop());photoStream=null;}
   photoArmed=false;
   btnPhoto.className="action-btn";
-  btnPhoto.querySelector(".btn-label").textContent="Capture Photo";
-  btnPhoto.querySelector(".btn-hint").textContent="Opens rear camera";
-  photoBtnIcon.textContent="";
-  photoDot.className="status-dot"; photoStatusEl.textContent="Waiting";
+  btnPhoto.querySelector(".a-label").textContent="Capture Photo";
+  btnPhoto.querySelector(".a-sub").textContent="Opens rear camera";
+  photoDot.className="dot"; photoSt.textContent="Ready";
 
-  btnSubmit.disabled=false;
-  submitRow.style.display="none";
+  btnSubmit.disabled=false; submitSt.style.display="none";
   submitTrack.classList.remove("show"); submitFill.style.width="0%";
-  updateStepper(false,false,false);
+  stepper(false,false,false);
 }
 </script>
 </body>
