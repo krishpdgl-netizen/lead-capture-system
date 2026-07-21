@@ -51,7 +51,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (ais
 # manually bumped every time a pinned version gets deprecated. A second,
 # older model is kept as a fallback in case the alias itself ever has a
 # transient issue. Override via GEMINI_MODELS (comma-separated) if needed.
-GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.0-flash").split(",")
+# NOTE: gemini-2.0-flash was removed as the fallback — Google shut it down
+# on June 1, 2026 (production logs show 429 "limit: 0" for it).
+GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.5-flash-lite").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 if not GEMINI_API_KEY:
@@ -318,8 +320,16 @@ def extract_card_with_gemini(image_bytes: bytes, mime_type: str) -> dict:
             # since not every model version honors it perfectly.
             text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
+            # Parse only the FIRST JSON object and ignore anything after it.
+            # Production logs showed the model sometimes returns the JSON
+            # followed by trailing content ("Extra data" error from a strict
+            # json.loads) — raw_decode handles that case.
             import json as _json
-            parsed = _json.loads(text)
+            start = text.find("{")
+            if start == -1:
+                print(f"[Card extraction — no JSON object in output, model={model}] text: {text[:200]!r}")
+                return {}
+            parsed, _ = _json.JSONDecoder().raw_decode(text[start:])
             result = {
                 "name": str(parsed.get("name", "") or "").strip(),
                 "email": str(parsed.get("email", "") or "").strip(),
