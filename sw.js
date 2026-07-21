@@ -9,8 +9,14 @@
 //
 // Bump CACHE_NAME whenever index.html/dashboard.html change so returning
 // online users pick up the new version instead of a stale cached shell.
-const CACHE_NAME = "lead-capture-shell-v2";
-const APP_SHELL = ["./index.html", "./dashboard.html"];
+const CACHE_NAME = "lead-capture-shell-v3";
+const APP_SHELL = [
+  "./index.html",
+  "./dashboard.html",
+  "./manifest.json",
+  "./icon-192.png",
+  "./icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
