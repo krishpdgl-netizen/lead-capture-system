@@ -97,7 +97,7 @@ def transcribe_audio_with_groq(audio_bytes: bytes, mime_type: str, filename: str
                 # verbose_json includes per-segment no_speech_prob, needed to
                 # detect hallucinated text on silent/near-silent clips.
                 data={"model": model, "response_format": "verbose_json"},
-                timeout=60,
+                timeout=180,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -109,15 +109,23 @@ def transcribe_audio_with_groq(audio_bytes: bytes, mime_type: str, filename: str
                 print(f"[Groq transcript — empty text, model={model}] full response: {data}")
                 return NO_SPEECH_MARKER
 
-            # Average no_speech_prob across segments. If Whisper itself is
-            # confident there was no real speech, treat the text as a
-            # hallucination rather than a real transcript, regardless of how
-            # plausible it reads.
-            if segments:
+            # Average no_speech_prob across segments. This is meant to catch
+            # SHORT hallucinated phrases Whisper invents on essentially-silent
+            # clips (e.g. "I am going to get it" on empty audio) — it must
+            # NOT be used to discard long real transcripts. A long real call
+            # naturally has plenty of pause/listening segments mixed with
+            # speech ones, which drags the average up even though the call
+            # clearly has real content. So this only fires when there's also
+            # very little actual text — a real 26-minute conversation with a
+            # substantial word count is never discarded here, no matter what
+            # the averaged no_speech_prob looks like.
+            word_count = len(text.split())
+            if segments and word_count <= 8:
                 avg_no_speech = sum(s.get("no_speech_prob", 0.0) for s in segments) / len(segments)
                 if avg_no_speech >= NO_SPEECH_PROB_THRESHOLD:
-                    print(f"[Groq transcript — high no_speech_prob ({avg_no_speech:.2f}), "
-                          f"model={model}] discarding likely-hallucinated text: {text!r}")
+                    print(f"[Groq transcript — high no_speech_prob ({avg_no_speech:.2f}) on "
+                          f"{word_count}-word text, model={model}] discarding likely-hallucinated "
+                          f"text: {text!r}")
                     return NO_SPEECH_MARKER
 
             print(f"[Groq transcript succeeded, model={model}, length={len(text)}]")
