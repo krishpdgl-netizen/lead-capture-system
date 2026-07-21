@@ -9,7 +9,7 @@
 //
 // Bump CACHE_NAME whenever index.html/dashboard.html change so returning
 // online users pick up the new version instead of a stale cached shell.
-const CACHE_NAME = "lead-capture-shell-v12";
+const CACHE_NAME = "lead-capture-shell-v13";
 const APP_SHELL = [
   "./index.html",
   "./dashboard.html",
