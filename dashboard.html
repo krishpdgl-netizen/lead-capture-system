@@ -2,701 +2,1074 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <link rel="manifest" href="./manifest.json" />
-<meta name="theme-color" content="#1B2A4A" />
+<meta name="theme-color" content="#0A0F1E" />
 <link rel="apple-touch-icon" href="./icon-192.png" />
-<title>Event Lead Capture</title>
+<title>Lead Capture</title>
 <style>
-  :root {
-    --navy: #1B2A4A;
-    --accent: #3E7BFA;
-    --ice: #EAF0FB;
-    --gray: #5B6472;
-    --green: #2FA36B;
-    --red: #D65A56;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    background: var(--ice);
-    color: var(--navy);
-    overscroll-behavior-y: contain;
-  }
-  .wrap { max-width: 560px; margin: 0 auto; padding: 24px 20px 60px; }
+/* ── TOKENS ─────────────────────────────────────────── */
+:root {
+  --bg:        #0A0F1E;
+  --surface:   rgba(255,255,255,0.05);
+  --border:    rgba(255,255,255,0.08);
+  --border-hi: rgba(255,255,255,0.16);
+  --text:      #F1F5F9;
+  --muted:     #64748B;
+  --accent:    #6366F1;
+  --accent-lo: rgba(99,102,241,0.15);
+  --success:   #10B981;
+  --success-lo:rgba(16,185,129,0.12);
+  --warn:      #F59E0B;
+  --danger:    #EF4444;
+  --danger-lo: rgba(239,68,68,0.12);
+  --radius:    16px;
+  --radius-sm: 10px;
+}
 
-  header { text-align: center; padding: 20px 0 10px; }
-  header h1 { font-size: 22px; margin: 0 0 4px; }
-  header p  { margin: 0; color: var(--gray); font-size: 13px; }
+/* ── RESET ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; }
+body {
+  min-height: 100%;
+  font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
+}
 
-  .conn-dot {
-    display: inline-block; width: 8px; height: 8px;
-    border-radius: 50%; background: var(--green);
-    margin-right: 5px; vertical-align: middle;
-  }
-  .conn-dot.offline { background: var(--red); }
+/* ── LAYOUT ──────────────────────────────────────────── */
+.shell {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0 16px 80px;
+}
 
-  .sync-banner {
-    display: none; background: #fff3cd; border: 1px solid #ffc107;
-    border-radius: 10px; padding: 10px 14px; margin-top: 14px; font-size: 13px;
-  }
-  .sync-banner.show { display: block; }
-  .sync-banner-top { display: flex; justify-content: space-between; align-items: center; }
-  #btnSyncNow {
-    font-size: 12px; padding: 5px 12px; border-radius: 20px;
-    border: none; background: var(--navy); color: #fff; cursor: pointer;
-  }
-  .progress-track {
-    height: 4px; background: #e0e7ef; border-radius: 2px;
-    margin-top: 8px; display: none;
-  }
-  .progress-track.show { display: block; }
-  .progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width .2s; }
+/* ── HEADER ──────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.topbar-brand {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  color: var(--text);
+}
+.topbar-brand span { color: var(--accent); }
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.conn-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  color: var(--success);
+  transition: color .2s;
+}
+.conn-pill.offline { color: var(--danger); }
+.conn-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.rep-badge {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rep-badge strong { color: var(--text); font-weight: 600; }
+.rep-switch {
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
 
-  .card {
-    background: #fff; border-radius: 14px; padding: 20px;
-    margin-top: 18px; box-shadow: 0 4px 16px rgba(27,42,74,0.08);
-  }
-  .section-label {
-    font-size: 12px; font-weight: 700; color: var(--gray);
-    text-transform: uppercase; letter-spacing: .5px;
-    margin: 0 0 14px;
-  }
+/* ── SYNC BANNER ─────────────────────────────────────── */
+.sync-banner {
+  display: none;
+  background: rgba(245,158,11,.08);
+  border: 1px solid rgba(245,158,11,.2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--warn);
+}
+.sync-banner.show { display: block; }
+.sync-banner-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sync-now-btn {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(245,158,11,.4);
+  background: transparent;
+  color: var(--warn);
+  cursor: pointer;
+}
 
-  /* Big tap-friendly action buttons */
-  .action-btn {
-    width: 100%; padding: 18px 16px; border: none; border-radius: 12px;
-    font-size: 16px; font-weight: 700; cursor: pointer;
-    display: flex; align-items: center; gap: 12px;
-    transition: opacity .15s;
-  }
-  .action-btn:active { opacity: .75; }
-  .action-btn .icon { font-size: 24px; flex-shrink: 0; }
-  .action-btn .label { text-align: left; line-height: 1.3; }
-  .action-btn .sub { font-size: 12px; font-weight: 400; opacity: .8; }
+/* ── STEPPER ─────────────────────────────────────────── */
+.stepper {
+  display: flex;
+  align-items: center;
+  margin-bottom: 28px;
+  gap: 0;
+}
+.step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+.step::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: calc(50% + 14px);
+  right: calc(-50% + 14px);
+  height: 1px;
+  background: var(--border);
+  transition: background .4s;
+}
+.step:last-child::after { display: none; }
+.step.done::after { background: var(--success); }
+.step-circle {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-hi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--bg);
+  transition: all .3s;
+  position: relative;
+  z-index: 1;
+}
+.step.active .step-circle {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-lo);
+  box-shadow: 0 0 0 4px rgba(99,102,241,.15);
+}
+.step.done .step-circle {
+  border-color: var(--success);
+  background: var(--success-lo);
+  color: var(--success);
+}
+.step-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+.step.active .step-label { color: var(--accent); }
+.step.done .step-label { color: var(--success); }
 
-  .btn-card   { background: #EAF0FB; color: var(--navy); margin-bottom: 10px; }
-  .btn-record { background: var(--navy); color: #fff; margin-bottom: 10px; }
-  .btn-stop   { background: var(--red); color: #fff; margin-bottom: 10px; display: none; }
-  .btn-photo  { background: #EAF0FB; color: var(--navy); }
-  .btn-submit { background: var(--accent); color: #fff; font-size: 17px; font-weight: 700;
-                width: 100%; padding: 18px; border: none; border-radius: 12px; cursor: pointer; }
-  .btn-submit:disabled { opacity: .5; cursor: not-allowed; }
+/* ── CARDS ───────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 12px;
+  transition: border-color .2s;
+}
+.card.active-card {
+  border-color: var(--border-hi);
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.card-icon {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+.card-icon.indigo { background: var(--accent-lo); }
+.card-icon.red    { background: var(--danger-lo); }
+.card-icon.green  { background: var(--success-lo); }
+.card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -.1px;
+}
+.card-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
 
-  video, .preview {
-    width: 100%; border-radius: 10px; margin-top: 0; margin-bottom: 12px;
-    display: none; background: #000;
-  }
-  .preview { object-fit: cover; }
+/* ── CAMERA / PREVIEW ────────────────────────────────── */
+video, .img-preview {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  display: none;
+  margin-bottom: 12px;
+  background: #000;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+}
 
-  .status-row {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 13px; color: var(--gray); margin-top: 10px;
-  }
-  .dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: #ddd; flex-shrink: 0;
-  }
-  .dot.active { background: var(--accent); animation: pulse 1s infinite; }
-  .dot.done   { background: var(--green); }
-  .dot.warn   { background: #ffc107; }
-  @keyframes pulse {
-    0%,100% { opacity: 1; } 50% { opacity: .4; }
-  }
+/* ── ACTION BUTTONS ──────────────────────────────────── */
+.action-btn {
+  width: 100%;
+  padding: 0 16px;
+  height: 56px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: all .15s;
+  background: rgba(255,255,255,0.03);
+  color: var(--text);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.action-btn:active { transform: scale(.98); opacity: .85; }
+.action-btn .btn-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+.action-btn .btn-text { flex: 1; }
+.action-btn .btn-label {
+  font-size: 14px;
+  font-weight: 600;
+  display: block;
+  color: var(--text);
+}
+.action-btn .btn-hint {
+  font-size: 11px;
+  color: var(--muted);
+  display: block;
+  margin-top: 1px;
+}
+.action-btn .btn-status-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
 
-  /* Card scan extracted fields — shown after a successful scan */
-  .extracted-fields {
-    display: none; background: #f0f9f4; border: 1px solid #b7e5cc;
-    border-radius: 10px; padding: 12px 14px; margin-top: 12px; font-size: 13px;
-  }
-  .extracted-fields.show { display: block; }
-  .extracted-fields strong { display: block; color: var(--navy); margin-bottom: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
-  .field-row { display: flex; gap: 6px; margin-bottom: 4px; color: var(--gray); }
-  .field-row span:first-child { font-weight: 600; min-width: 64px; color: var(--navy); }
+.action-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.action-btn.primary .btn-hint { color: rgba(255,255,255,.65); }
+.action-btn.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.action-btn.danger .btn-hint { color: rgba(255,255,255,.65); }
+.action-btn.success-state {
+  border-color: var(--success);
+  background: var(--success-lo);
+}
+.action-btn.success-state .btn-label { color: var(--success); }
 
-  #audioPreview { width: 100%; margin-top: 10px; display: none; }
+/* Recording pulse ring */
+.action-btn.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  animation: rec-ring 1.4s ease-in-out infinite;
+}
+@keyframes rec-ring {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.6); }
+  50%      { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+}
 
-  #submitStatusRow { display: none; }
+/* ── STATUS ROW ──────────────────────────────────────── */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 18px;
+}
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--border-hi);
+  flex-shrink: 0;
+  transition: background .2s;
+}
+.status-dot.active { background: var(--accent); animation: blink 1s infinite; }
+.status-dot.done   { background: var(--success); animation: none; }
+.status-dot.warn   { background: var(--warn); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-  #toast {
-    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
-    background: #1B2A4A; color: #fff; padding: 12px 22px; border-radius: 24px;
-    font-size: 14px; opacity: 0; pointer-events: none;
-    transition: opacity .25s; white-space: nowrap; z-index: 9999;
-    max-width: 90vw; text-align: center;
-  }
-  #toast.show { opacity: 1; }
+/* ── EXTRACTED FIELDS ────────────────────────────────── */
+.extracted-block {
+  display: none;
+  margin-top: 14px;
+  background: var(--success-lo);
+  border: 1px solid rgba(16,185,129,.2);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+}
+.extracted-block.show { display: block; }
+.extracted-heading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--success);
+  margin-bottom: 10px;
+}
+.ef-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.ef-row:last-child { margin-bottom: 0; }
+.ef-key {
+  min-width: 60px;
+  color: var(--muted);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.ef-val { color: var(--text); word-break: break-all; }
 
-  .footer-note { text-align: center; font-size: 12px; color: var(--gray); margin-top: 28px; }
+/* ── AUDIO PLAYER ────────────────────────────────────── */
+#audioPreview {
+  width: 100%;
+  margin-top: 12px;
+  display: none;
+  border-radius: 8px;
+  height: 36px;
+}
+
+/* ── PROGRESS BAR ────────────────────────────────────── */
+.prog-track {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  margin-top: 10px;
+  display: none;
+  overflow: hidden;
+}
+.prog-track.show { display: block; }
+.prog-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width .2s;
+}
+
+/* ── SUBMIT BUTTON ───────────────────────────────────── */
+.submit-btn {
+  width: 100%;
+  height: 60px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.2px;
+  cursor: pointer;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.submit-btn:active { transform: scale(.98); }
+.submit-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── TOAST ───────────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  background: rgba(15,20,40,.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-hi);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: 24px;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  white-space: nowrap;
+  z-index: 9999;
+  max-width: 88vw;
+  text-align: center;
+}
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── SUBMIT CARD ─────────────────────────────────────── */
+.submit-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 12px;
+}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="shell">
 
-  <header>
-    <h1>&#9889; Lead Capture</h1>
-    <p>
-      <span class="conn-dot" id="connDot"></span><span id="connLabel">Online</span>
-      &nbsp;&middot;&nbsp;
-      Rep: <strong id="repNameDisplay">-</strong>
-      &nbsp;&middot;&nbsp;
-      <a href="#" id="switchUserLink" style="color:var(--accent);text-decoration:none;">Not you?</a>
-    </p>
-  </header>
-
-  <div class="sync-banner" id="syncBanner">
-    <div class="sync-banner-top">
-      <span id="syncBannerText">0 leads waiting to sync</span>
-      <button type="button" id="btnSyncNow">Sync now</button>
-    </div>
-    <div class="progress-track" id="syncProgressTrack">
-      <div class="progress-fill" id="syncProgressFill"></div>
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-brand">Panache <span>Leads</span></div>
+    <div class="topbar-meta">
+      <div class="conn-pill" id="connPill">
+        <span class="conn-dot"></span>
+        <span id="connLabel">Online</span>
+      </div>
+      <div class="rep-badge">
+        <strong id="repNameDisplay">—</strong>
+        &nbsp;<a href="#" class="rep-switch" id="switchUserLink">Switch</a>
+      </div>
     </div>
   </div>
 
-  <!-- STEP 1: VISITING CARD -->
-  <div class="card">
-    <p class="section-label">&#128179; Step 1 — Visiting Card</p>
-    <video id="cardVideo" autoplay playsinline></video>
-    <img id="cardPreview" class="preview" alt="Visiting card" />
-    <button type="button" class="action-btn btn-card" id="btnScanCard">
-      <span class="icon">&#128247;</span>
-      <span class="label">
-        Scan Card
-        <span class="sub">Auto-extracts contact details when online</span>
-      </span>
-    </button>
-    <div class="status-row">
-      <span class="dot" id="cardDot"></span>
-      <span id="cardStatus">No card scanned</span>
+  <!-- SYNC BANNER -->
+  <div class="sync-banner" id="syncBanner">
+    <div class="sync-banner-row">
+      <span id="syncBannerText">Leads pending sync</span>
+      <button class="sync-now-btn" id="btnSyncNow">Sync now</button>
     </div>
-    <div class="extracted-fields" id="extractedFields">
-      <strong>&#10003; Extracted from card</strong>
-      <div class="field-row" id="efName" style="display:none;"><span>Name</span><span id="efNameVal"></span></div>
-      <div class="field-row" id="efEmail" style="display:none;"><span>Email</span><span id="efEmailVal"></span></div>
-      <div class="field-row" id="efPhone" style="display:none;"><span>Phone</span><span id="efPhoneVal"></span></div>
-      <div class="field-row" id="efCompany" style="display:none;"><span>Company</span><span id="efCompanyVal"></span></div>
+    <div class="prog-track show" id="syncProgressTrack" style="margin-top:10px;">
+      <div class="prog-fill" id="syncProgressFill"></div>
+    </div>
+  </div>
+
+  <!-- STEPPER -->
+  <div class="stepper">
+    <div class="step active" id="step1">
+      <div class="step-circle" id="sc1">1</div>
+      <div class="step-label">Card</div>
+    </div>
+    <div class="step" id="step2">
+      <div class="step-circle" id="sc2">2</div>
+      <div class="step-label">Audio</div>
+    </div>
+    <div class="step" id="step3">
+      <div class="step-circle" id="sc3">3</div>
+      <div class="step-label">Photo</div>
+    </div>
+  </div>
+
+  <!-- STEP 1: CARD -->
+  <div class="card active-card" id="cardCard">
+    <div class="card-header">
+      <div class="card-icon indigo">&#128179;</div>
+      <div>
+        <div class="card-title">Visiting Card</div>
+        <div class="card-sub">Snap the card — details extract automatically</div>
+      </div>
+    </div>
+
+    <video id="cardVideo" autoplay playsinline></video>
+    <img id="cardPreview" class="img-preview" alt="Card" />
+
+    <button class="action-btn" id="btnScanCard">
+      <span class="btn-icon">&#128247;</span>
+      <span class="btn-text">
+        <span class="btn-label">Scan Card</span>
+        <span class="btn-hint">Opens rear camera</span>
+      </span>
+      <span class="btn-status-icon" id="cardBtnIcon"></span>
+    </button>
+
+    <div class="status-row">
+      <span class="status-dot" id="cardDot"></span>
+      <span id="cardStatus">Waiting</span>
+    </div>
+
+    <div class="extracted-block" id="extractedBlock">
+      <div class="extracted-heading">&#10003;&nbsp; Extracted — please verify</div>
+      <div class="ef-row" id="efRowName" style="display:none">
+        <span class="ef-key">Name</span><span class="ef-val" id="efName"></span>
+      </div>
+      <div class="ef-row" id="efRowEmail" style="display:none">
+        <span class="ef-key">Email</span><span class="ef-val" id="efEmail"></span>
+      </div>
+      <div class="ef-row" id="efRowPhone" style="display:none">
+        <span class="ef-key">Phone</span><span class="ef-val" id="efPhone"></span>
+      </div>
+      <div class="ef-row" id="efRowCompany" style="display:none">
+        <span class="ef-key">Company</span><span class="ef-val" id="efCompany"></span>
+      </div>
     </div>
   </div>
 
   <!-- STEP 2: AUDIO -->
-  <div class="card">
-    <p class="section-label">&#127908; Step 2 — Record Conversation</p>
-    <button type="button" class="action-btn btn-record" id="btnRecord">
-      <span class="icon">&#9679;</span>
-      <span class="label">Start Recording<span class="sub">Tap to begin</span></span>
+  <div class="card" id="audioCard">
+    <div class="card-header">
+      <div class="card-icon red">&#127908;</div>
+      <div>
+        <div class="card-title">Conversation</div>
+        <div class="card-sub">Record while you talk with the customer</div>
+      </div>
+    </div>
+
+    <button class="action-btn primary" id="btnRecord">
+      <span class="btn-icon">&#9679;</span>
+      <span class="btn-text">
+        <span class="btn-label">Start Recording</span>
+        <span class="btn-hint">Tap to begin</span>
+      </span>
     </button>
-    <button type="button" class="action-btn btn-stop" id="btnStop">
-      <span class="icon">&#9209;</span>
-      <span class="label">Stop Recording<span class="sub">Tap when done</span></span>
+    <button class="action-btn recording" id="btnStop" style="display:none;">
+      <span class="btn-icon">&#9209;</span>
+      <span class="btn-text">
+        <span class="btn-label">Stop Recording</span>
+        <span class="btn-hint">Tap when conversation ends</span>
+      </span>
     </button>
+
     <div class="status-row">
-      <span class="dot" id="audioDot"></span>
-      <span id="audioStatus">No recording yet</span>
+      <span class="status-dot" id="audioDot"></span>
+      <span id="audioStatus">Waiting</span>
     </div>
     <audio id="audioPreview" controls></audio>
   </div>
 
   <!-- STEP 3: PHOTO -->
-  <div class="card">
-    <p class="section-label">&#128247; Step 3 — Customer Photo</p>
+  <div class="card" id="photoCard">
+    <div class="card-header">
+      <div class="card-icon green">&#128100;</div>
+      <div>
+        <div class="card-title">Customer Photo</div>
+        <div class="card-sub">Optional — helps identify the lead later</div>
+      </div>
+    </div>
+
     <video id="photoVideo" autoplay playsinline></video>
-    <img id="photoPreview" class="preview" alt="Customer photo" />
-    <button type="button" class="action-btn btn-photo" id="btnPhoto">
-      <span class="icon">&#128247;</span>
-      <span class="label">Capture Photo<span class="sub">Tap to open camera</span></span>
+    <img id="photoPreview" class="img-preview" alt="Customer" />
+
+    <button class="action-btn" id="btnPhoto">
+      <span class="btn-icon">&#128247;</span>
+      <span class="btn-text">
+        <span class="btn-label">Capture Photo</span>
+        <span class="btn-hint">Opens rear camera</span>
+      </span>
+      <span class="btn-status-icon" id="photoBtnIcon"></span>
     </button>
+
     <div class="status-row">
-      <span class="dot" id="photoDot"></span>
-      <span id="photoStatus">No photo yet</span>
+      <span class="status-dot" id="photoDot"></span>
+      <span id="photoStatus">Waiting</span>
     </div>
   </div>
 
   <!-- SUBMIT -->
-  <div class="card">
-    <button type="button" class="btn-submit" id="btnSubmit">&#9989; Submit Lead</button>
-    <div class="status-row" id="submitStatusRow" style="margin-top:12px;">
-      <span class="dot" id="submitDot"></span>
+  <div class="submit-card">
+    <button class="submit-btn" id="btnSubmit">Submit Lead</button>
+    <div class="status-row" id="submitStatusRow" style="display:none; margin-top:14px;">
+      <span class="status-dot" id="submitDot"></span>
       <span id="submitStatus">Uploading...</span>
     </div>
-    <div class="progress-track" id="submitProgressTrack">
-      <div class="progress-fill" id="submitProgressFill"></div>
+    <div class="prog-track" id="submitProgressTrack">
+      <div class="prog-fill" id="submitProgressFill"></div>
     </div>
   </div>
 
-  <p class="footer-note">Leads are saved on this device if offline and sync automatically when connected.</p>
-</div>
+</div><!-- /shell -->
 
 <div id="toast"></div>
 
 <script>
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./sw.js").catch((err) => {
-        console.error("Service worker registration failed:", err);
-      });
-    });
-  }
+/* ── SERVICE WORKER ─────────────────────────────────── */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () =>
+    navigator.serviceWorker.register("./sw.js").catch(console.error)
+  );
+}
 
-  const API_BASE = window.LEAD_CAPTURE_API_BASE || "https://lead-capture-system-xxfp.onrender.com";
+const API_BASE = window.LEAD_CAPTURE_API_BASE || "https://lead-capture-system-xxfp.onrender.com";
 
-  // ---------- REP LOGIN GUARD ----------
-  const REP_NAME_KEY = "lead_capture_rep_name";
-  const repName = localStorage.getItem(REP_NAME_KEY);
-  if (!repName) { window.location.href = "index.html"; }
-  document.getElementById("repNameDisplay").textContent = repName || "";
-  document.getElementById("switchUserLink").addEventListener("click", (e) => {
-    e.preventDefault();
-    localStorage.removeItem(REP_NAME_KEY);
-    window.location.href = "index.html";
+/* ── AUTH ───────────────────────────────────────────── */
+const REP_NAME_KEY = "lead_capture_rep_name";
+const repName = localStorage.getItem(REP_NAME_KEY);
+if (!repName) location.href = "index.html";
+document.getElementById("repNameDisplay").textContent = repName || "";
+document.getElementById("switchUserLink").addEventListener("click", (e) => {
+  e.preventDefault();
+  localStorage.removeItem(REP_NAME_KEY);
+  location.href = "index.html";
+});
+
+/* ── TOAST ──────────────────────────────────────────── */
+const toastEl = document.getElementById("toast");
+let toastTimer;
+function toast(msg, type = "info") {
+  toastEl.textContent = msg;
+  toastEl.style.borderColor = type === "error" ? "rgba(239,68,68,.3)"
+    : type === "success" ? "rgba(16,185,129,.3)" : "var(--border-hi)";
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3200);
+}
+
+/* ── STEPPER ────────────────────────────────────────── */
+function updateStepper(cardDone, audioDone, photoDone) {
+  const steps = [
+    { el: document.getElementById("step1"), done: cardDone, isNext: !cardDone },
+    { el: document.getElementById("step2"), done: audioDone, isNext: cardDone && !audioDone },
+    { el: document.getElementById("step3"), done: photoDone, isNext: audioDone && !photoDone },
+  ];
+  steps.forEach(({ el, done, isNext }, i) => {
+    el.className = "step" + (done ? " done" : isNext ? " active" : "");
+    const circle = document.getElementById("sc" + (i + 1));
+    circle.textContent = done ? "✓" : String(i + 1);
   });
-
-  // ---------- TOAST ----------
-  const toastEl = document.getElementById("toast");
-  let toastTimer;
-  function toast(msg, type = "info") {
-    toastEl.textContent = msg;
-    toastEl.style.background = type === "error" ? "#D65A56" : type === "success" ? "#2FA36B" : "#1B2A4A";
-    toastEl.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3500);
-  }
-
-  // ---------- OFFLINE QUEUE (IndexedDB) ----------
-  const DB_NAME = "lead_capture_offline";
-  const DB_VERSION = 1;
-  const STORE_NAME = "queue";
-
-  function openQueueDB() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME, { keyPath: "id" });
-      req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  async function queueAdd(record) {
-    const db = await openQueueDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-  async function queueGetAll() {
-    const db = await openQueueDB();
-    return new Promise((resolve, reject) => {
-      const req = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  async function queueDelete(id) {
-    const db = await openQueueDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).delete(id);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-  function makeId() {
-    return (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
-  }
-
-  // ---------- CONNECTION STATUS ----------
-  const connDot = document.getElementById("connDot");
-  const connLabel = document.getElementById("connLabel");
-  const syncBanner = document.getElementById("syncBanner");
-  const syncBannerText = document.getElementById("syncBannerText");
-  const btnSyncNow = document.getElementById("btnSyncNow");
-
-  function setConnUI(isOnline) {
-    connDot.className = "conn-dot" + (isOnline ? "" : " offline");
-    connLabel.textContent = isOnline ? "Online" : "Offline — leads saved on device";
-  }
-  async function refreshBanner() {
-    const pending = await queueGetAll().catch(() => []);
-    if (pending.length > 0) {
-      syncBannerText.textContent = `${pending.length} lead${pending.length > 1 ? "s" : ""} waiting to sync`;
-      syncBanner.classList.add("show");
-    } else {
-      syncBanner.classList.remove("show");
-    }
-  }
-
-  function sendRecordToBackend(rec, onProgress) {
-    return new Promise((resolve, reject) => {
-      const fd = new FormData();
-      fd.append("client_lead_id", rec.id);
-      fd.append("rep_name", rec.repName || "");
-      fd.append("name", rec.name || "");
-      fd.append("email", rec.email || "");
-      fd.append("phone", rec.phone || "");
-      fd.append("company", rec.company || "");
-      fd.append("industry", rec.industry || "");
-      fd.append("products", rec.products || "");
-      fd.append("quantity", rec.quantity || "1");
-      fd.append("audio", rec.audioBlob, "conversation.webm");
-      fd.append("photo", rec.photoBlob, "customer.jpg");
-      // Card photo sent separately so backend can save it to Drive
-      if (rec.cardBlob) fd.append("card_photo", rec.cardBlob, "visiting_card.jpg");
-
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE}/api/submit-lead`);
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); }
-        } else {
-          reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.send(fd);
-    });
-  }
-
-  const syncProgressTrack = document.getElementById("syncProgressTrack");
-  const syncProgressFill  = document.getElementById("syncProgressFill");
-
-  function setSyncProgress(pct, label) {
-    syncProgressTrack.classList.add("show");
-    syncProgressFill.style.width = `${pct}%`;
-    if (label) syncBannerText.textContent = label;
-  }
-  function hideSyncProgress() {
-    syncProgressTrack.classList.remove("show");
-    syncProgressFill.style.width = "0%";
-  }
-
-  let syncing = false;
-  async function trySyncQueue({ silent = true } = {}) {
-    if (syncing) return;
-    if (!navigator.onLine) { await refreshBanner(); return; }
-    syncing = true;
-    try {
-      const pending = await queueGetAll();
-      const total = pending.length;
-      let sentCount = 0;
-      for (let i = 0; i < total; i++) {
-        const rec = pending[i];
-        try {
-          await sendRecordToBackend(rec, (pct) => {
-            const overall = Math.round(((i + pct / 100) / total) * 100);
-            setSyncProgress(overall, `Syncing lead ${i + 1} of ${total}... ${overall}%`);
-          });
-          await queueDelete(rec.id);
-          sentCount++;
-          setSyncProgress(Math.round(((i + 1) / total) * 100));
-        } catch (err) {
-          break;
-        }
-      }
-      if (sentCount > 0 && !silent) {
-        toast(`${sentCount} queued lead${sentCount > 1 ? "s" : ""} synced.`, "success");
-      }
-    } finally {
-      syncing = false;
-      hideSyncProgress();
-      await refreshBanner();
-    }
-  }
-
-  window.addEventListener("online",  () => { setConnUI(true);  trySyncQueue({ silent: false }); });
-  window.addEventListener("offline", () => setConnUI(false));
-  btnSyncNow.addEventListener("click", () => trySyncQueue({ silent: false }));
-  setInterval(() => trySyncQueue({ silent: true }), 20000);
-  setConnUI(navigator.onLine);
-  refreshBanner();
-  if (navigator.onLine) trySyncQueue({ silent: true });
-
-  // ---------- STEP 1: VISITING CARD ----------
-  let cardBlob = null;
-  let cardExtracted = {};          // extracted fields stored here, sent with lead
-  const btnScanCard   = document.getElementById("btnScanCard");
-  const cardVideo     = document.getElementById("cardVideo");
-  const cardPreview   = document.getElementById("cardPreview");
-  const cardDot       = document.getElementById("cardDot");
-  const cardStatus    = document.getElementById("cardStatus");
-  const extractedFields = document.getElementById("extractedFields");
-  let cardStream = null, cardArmed = false;
-
-  function showExtracted(fields) {
-    const map = { Name: ["efName","efNameVal"], Email: ["efEmail","efEmailVal"],
-                  Phone: ["efPhone","efPhoneVal"], Company: ["efCompany","efCompanyVal"] };
-    const vals = { Name: fields.name, Email: fields.email, Phone: fields.phone, Company: fields.company };
-    let any = false;
-    for (const [label, [rowId, valId]] of Object.entries(map)) {
-      const v = vals[label];
-      const row = document.getElementById(rowId);
-      if (v) {
-        document.getElementById(valId).textContent = v;
-        row.style.display = "flex";
-        any = true;
-      } else {
-        row.style.display = "none";
-      }
-    }
-    if (any) extractedFields.classList.add("show");
-  }
-
-  btnScanCard.addEventListener("click", async () => {
-    if (!cardArmed) {
-      try {
-        cardStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        cardVideo.srcObject = cardStream;
-        cardVideo.style.display = "block";
-        cardPreview.style.display = "none";
-        cardArmed = true;
-        btnScanCard.querySelector(".label").innerHTML = "Snap Now<span class=\"sub\">Point at card and tap</span>";
-      } catch (err) {
-        toast("Camera access denied or unavailable.", "error");
-      }
-      return;
-    }
-
-    // Snap
-    const canvas = document.createElement("canvas");
-    canvas.width  = cardVideo.videoWidth;
-    canvas.height = cardVideo.videoHeight;
-    canvas.getContext("2d").drawImage(cardVideo, 0, 0);
-    canvas.toBlob(async (blob) => {
-      cardBlob = blob;
-      cardPreview.src = URL.createObjectURL(blob);
-      cardPreview.style.display = "block";
-      cardVideo.style.display = "none";
-      cardStream.getTracks().forEach((t) => t.stop());
-      cardArmed = false;
-      btnScanCard.querySelector(".label").innerHTML = "Rescan Card<span class=\"sub\">Tap to replace</span>";
-      cardDot.className = "dot active";
-      cardStatus.textContent = "Card saved.";
-
-      // Try extraction if online — card is always saved regardless
-      if (navigator.onLine) {
-        cardStatus.textContent = "Reading card details...";
-        try {
-          const fd = new FormData();
-          fd.append("card", blob, "card.jpg");
-          const resp = await fetch(`${API_BASE}/api/scan-card`, { method: "POST", body: fd });
-          const data = await resp.json();
-          if (data.status === "success" && data.fields) {
-            cardExtracted = data.fields;
-            const filled = Object.values(data.fields).filter(Boolean).length;
-            cardDot.className = "dot done";
-            cardStatus.textContent = filled
-              ? `Card read — ${filled} detail${filled === 1 ? "" : "s"} extracted. Please verify.`
-              : "Card saved — couldn't read text. Details will be blank.";
-            if (filled) {
-              showExtracted(data.fields);
-              toast("Card scanned — details extracted. Please verify.", "success");
-            }
-          } else {
-            cardDot.className = "dot warn";
-            cardStatus.textContent = "Card saved — couldn't read text automatically.";
-          }
-        } catch (err) {
-          cardDot.className = "dot warn";
-          cardStatus.textContent = "Card saved. Couldn't extract details (no connection) — will upload with lead.";
-        }
-      } else {
-        cardDot.className = "dot done";
-        cardStatus.textContent = "Card photo saved — details will upload when online.";
-      }
-    }, "image/jpeg", 0.92);
+  // highlight the active card
+  ["cardCard","audioCard","photoCard"].forEach((id, i) => {
+    const isActive = steps[i].isNext || (i === 0 && !cardDone);
+    document.getElementById(id).classList.toggle("active-card", isActive);
   });
+}
+updateStepper(false, false, false);
 
-  // ---------- STEP 2: AUDIO ----------
-  let mediaRecorder, audioChunks = [], audioBlob = null;
-  const btnRecord    = document.getElementById("btnRecord");
-  const btnStop      = document.getElementById("btnStop");
-  const audioDot     = document.getElementById("audioDot");
-  const audioStatus  = document.getElementById("audioStatus");
-  const audioPreview = document.getElementById("audioPreview");
-
-  btnRecord.addEventListener("click", async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunks = [];
-      mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
-      mediaRecorder.onstop = () => {
-        audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-        audioPreview.src = URL.createObjectURL(audioBlob);
-        audioPreview.style.display = "block";
-        audioDot.className = "dot done";
-        audioStatus.textContent = "Recording captured";
-        stream.getTracks().forEach((t) => t.stop());
-      };
-      mediaRecorder.start();
-      audioDot.className = "dot active";
-      audioStatus.textContent = "Recording...";
-      btnRecord.style.display = "none";
-      btnStop.style.display   = "flex";
-    } catch (err) {
-      toast("Microphone access denied or unavailable.", "error");
-    }
+/* ── INDEXEDDB QUEUE ────────────────────────────────── */
+const DB_NAME = "lead_capture_offline", DB_VER = 1, STORE = "queue";
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, DB_VER);
+    r.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { keyPath: "id" });
+    r.onsuccess = e => res(e.target.result);
+    r.onerror   = () => rej(r.error);
   });
-
-  btnStop.addEventListener("click", () => {
-    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-    btnRecord.style.display = "flex";
-    btnStop.style.display   = "none";
+}
+async function qAdd(rec) {
+  const db = await openDB();
+  return new Promise((res,rej) => {
+    const tx = db.transaction(STORE,"readwrite");
+    tx.objectStore(STORE).put(rec);
+    tx.oncomplete = res; tx.onerror = ()=>rej(tx.error);
   });
-
-  // ---------- STEP 3: PHOTO ----------
-  let photoBlob = null;
-  const btnPhoto      = document.getElementById("btnPhoto");
-  const photoVideo    = document.getElementById("photoVideo");
-  const photoPreview  = document.getElementById("photoPreview");
-  const photoDot      = document.getElementById("photoDot");
-  const photoStatus   = document.getElementById("photoStatus");
-  let photoStream = null, photoArmed = false;
-
-  btnPhoto.addEventListener("click", async () => {
-    if (!photoArmed) {
-      try {
-        photoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        photoVideo.srcObject = photoStream;
-        photoVideo.style.display = "block";
-        photoPreview.style.display = "none";
-        photoArmed = true;
-        btnPhoto.querySelector(".label").innerHTML = "Snap Photo<span class=\"sub\">Point at customer and tap</span>";
-      } catch (err) {
-        toast("Camera access denied or unavailable.", "error");
-      }
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width  = photoVideo.videoWidth;
-    canvas.height = photoVideo.videoHeight;
-    canvas.getContext("2d").drawImage(photoVideo, 0, 0);
-    canvas.toBlob((blob) => {
-      photoBlob = blob;
-      photoPreview.src = URL.createObjectURL(blob);
-      photoPreview.style.display = "block";
-      photoVideo.style.display   = "none";
-      photoDot.className = "dot done";
-      photoStatus.textContent = "Photo captured";
-      photoStream.getTracks().forEach((t) => t.stop());
-      photoArmed = false;
-      btnPhoto.querySelector(".label").innerHTML = "Retake Photo<span class=\"sub\">Tap to replace</span>";
-    }, "image/jpeg", 0.9);
+}
+async function qAll() {
+  const db = await openDB();
+  return new Promise((res,rej) => {
+    const r = db.transaction(STORE,"readonly").objectStore(STORE).getAll();
+    r.onsuccess = () => res(r.result||[]); r.onerror=()=>rej(r.error);
   });
+}
+async function qDel(id) {
+  const db = await openDB();
+  return new Promise((res,rej) => {
+    const tx = db.transaction(STORE,"readwrite");
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
+  });
+}
+function uid() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
-  // ---------- SUBMIT ----------
-  const btnSubmit         = document.getElementById("btnSubmit");
-  const submitStatusRow   = document.getElementById("submitStatusRow");
-  const submitDot         = document.getElementById("submitDot");
-  const submitStatus      = document.getElementById("submitStatus");
-  const submitProgressTrack = document.getElementById("submitProgressTrack");
-  const submitProgressFill  = document.getElementById("submitProgressFill");
+/* ── CONNECTION ─────────────────────────────────────── */
+const connPill = document.getElementById("connPill");
+const connLabel = document.getElementById("connLabel");
+const syncBanner = document.getElementById("syncBanner");
+const syncBannerText = document.getElementById("syncBannerText");
 
-  function setSubmitProgress(pct) {
-    submitProgressTrack.classList.add("show");
-    submitProgressFill.style.width = `${pct}%`;
-    submitStatus.textContent = `Uploading... ${pct}%`;
-  }
-  function hideSubmitProgress() {
-    submitProgressTrack.classList.remove("show");
-    submitProgressFill.style.width = "0%";
-  }
+function setConnUI(online) {
+  connPill.className = "conn-pill" + (online ? "" : " offline");
+  connLabel.textContent = online ? "Online" : "Offline";
+  document.body.style.overscrollBehaviorY = online ? "auto" : "contain";
+}
+async function refreshBanner() {
+  const q = await qAll().catch(()=>[]);
+  syncBanner.classList.toggle("show", q.length > 0);
+  if (q.length > 0) syncBannerText.textContent = `${q.length} lead${q.length>1?"s":""} waiting to sync`;
+}
 
-  btnSubmit.addEventListener("click", async () => {
-    // Only hard requirement: audio recording
-    if (!audioBlob) {
-      toast("Please record the conversation first.", "error");
-      return;
-    }
+/* ── SEND TO BACKEND ────────────────────────────────── */
+function sendToBackend(rec, onProg) {
+  return new Promise((res,rej) => {
+    const fd = new FormData();
+    fd.append("client_lead_id", rec.id);
+    fd.append("rep_name", rec.repName||"");
+    fd.append("name",     rec.name||"");
+    fd.append("email",    rec.email||"");
+    fd.append("phone",    rec.phone||"");
+    fd.append("company",  rec.company||"");
+    fd.append("industry", rec.industry||"");
+    fd.append("products", rec.products||"");
+    fd.append("quantity", rec.quantity||"1");
+    fd.append("audio",    rec.audioBlob, "conversation.webm");
+    fd.append("photo",    rec.photoBlob, "customer.jpg");
+    if (rec.cardBlob) fd.append("card_photo", rec.cardBlob, "visiting_card.jpg");
 
-    btnSubmit.disabled = true;
-    submitStatusRow.style.display = "flex";
-    submitDot.className = "dot active";
-    submitStatus.textContent = "Saving lead...";
-
-    const record = {
-      id: makeId(),
-      repName: repName || "",
-      // Contact details from card extraction (empty strings if no card scanned
-      // or extraction failed — the audio transcript still captures intent)
-      name:    cardExtracted.name    || "",
-      email:   cardExtracted.email   || "",
-      phone:   cardExtracted.phone   || "",
-      company: cardExtracted.company || "",
-      industry: "",
-      products: "",
-      quantity: "1",
-      audioBlob,
-      photoBlob: photoBlob || cardBlob || new Blob([], { type: "image/jpeg" }),
-      cardBlob: cardBlob || null,
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE}/api/submit-lead`);
+    xhr.upload.onprogress = e => { if (e.lengthComputable && onProg) onProg(Math.round(e.loaded/e.total*100)); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { try{res(JSON.parse(xhr.responseText))}catch{res({})} }
+      else rej(new Error(xhr.responseText || `HTTP ${xhr.status}`));
     };
-
-    if (!navigator.onLine) {
-      await queueAdd(record);
-      await refreshBanner();
-      submitDot.className = "dot done";
-      submitStatus.textContent = "Saved offline — will sync when online";
-      toast("No connection — lead saved and will sync automatically.", "success");
-      setTimeout(resetForm, 2200);
-      return;
-    }
-
-    setSubmitProgress(0);
-    try {
-      await sendRecordToBackend(record, (pct) => setSubmitProgress(pct));
-      setSubmitProgress(100);
-      submitDot.className = "dot done";
-      submitStatus.textContent = "Submitted successfully";
-      toast("Lead captured!", "success");
-      setTimeout(resetForm, 2200);
-    } catch (err) {
-      hideSubmitProgress();
-      await queueAdd(record);
-      await refreshBanner();
-      submitDot.className = "dot done";
-      submitStatus.textContent = "Saved offline — will sync when online";
-      toast("Couldn't reach server — lead saved and will sync automatically.", "success");
-      setTimeout(resetForm, 2200);
-    }
+    xhr.onerror = () => rej(new Error("Network error"));
+    xhr.send(fd);
   });
+}
 
-  // ---------- RESET ----------
-  function resetForm() {
-    // Card
-    cardBlob = null; cardExtracted = {};
-    cardPreview.style.display = "none"; cardPreview.removeAttribute("src");
-    cardVideo.style.display = "none";
-    if (cardStream) { cardStream.getTracks().forEach((t) => t.stop()); cardStream = null; }
-    cardArmed = false;
-    btnScanCard.querySelector(".label").innerHTML = "Scan Card<span class=\"sub\">Auto-extracts contact details when online</span>";
-    cardDot.className = "dot"; cardStatus.textContent = "No card scanned";
-    extractedFields.classList.remove("show");
-    ["efName","efEmail","efPhone","efCompany"].forEach((id) => document.getElementById(id).style.display = "none");
-
-    // Audio
-    audioBlob = null;
-    audioPreview.style.display = "none"; audioPreview.removeAttribute("src");
-    audioDot.className = "dot"; audioStatus.textContent = "No recording yet";
-    btnRecord.style.display = "flex"; btnStop.style.display = "none";
-
-    // Photo
-    photoBlob = null;
-    photoPreview.style.display = "none"; photoPreview.removeAttribute("src");
-    photoVideo.style.display = "none";
-    if (photoStream) { photoStream.getTracks().forEach((t) => t.stop()); photoStream = null; }
-    photoArmed = false;
-    btnPhoto.querySelector(".label").innerHTML = "Capture Photo<span class=\"sub\">Tap to open camera</span>";
-    photoDot.className = "dot"; photoStatus.textContent = "No photo yet";
-
-    // Submit
-    btnSubmit.disabled = false;
-    submitStatusRow.style.display = "none";
-    hideSubmitProgress();
+/* ── SYNC QUEUE ─────────────────────────────────────── */
+const syncFill = document.getElementById("syncProgressFill");
+const syncTrack = document.getElementById("syncProgressTrack");
+let syncing = false;
+async function syncQueue({ silent=true }={}) {
+  if (syncing || !navigator.onLine) { await refreshBanner(); return; }
+  syncing = true;
+  try {
+    const q = await qAll(), total = q.length;
+    let sent = 0;
+    for (let i=0; i<total; i++) {
+      try {
+        await sendToBackend(q[i], pct => {
+          const overall = Math.round((i+pct/100)/total*100);
+          syncFill.style.width = overall+"%";
+          syncBannerText.textContent = `Syncing ${i+1}/${total} — ${overall}%`;
+        });
+        await qDel(q[i].id); sent++;
+        syncFill.style.width = Math.round((i+1)/total*100)+"%";
+      } catch { break; }
+    }
+    if (sent && !silent) toast(`${sent} lead${sent>1?"s":""} synced`, "success");
+  } finally {
+    syncing = false;
+    syncFill.style.width = "0%";
+    await refreshBanner();
   }
+}
+window.addEventListener("online",  ()=>{ setConnUI(true);  syncQueue({silent:false}); });
+window.addEventListener("offline", ()=> setConnUI(false));
+document.getElementById("btnSyncNow").addEventListener("click", ()=> syncQueue({silent:false}));
+setInterval(()=> syncQueue(), 20000);
+setConnUI(navigator.onLine);
+refreshBanner();
+if (navigator.onLine) syncQueue();
+
+/* ── STATE ──────────────────────────────────────────── */
+let cardBlob=null, cardExtracted={};
+let audioBlob=null;
+let photoBlob=null;
+
+/* ── STEP 1: CARD ───────────────────────────────────── */
+const btnScanCard    = document.getElementById("btnScanCard");
+const cardVideo      = document.getElementById("cardVideo");
+const cardPreview    = document.getElementById("cardPreview");
+const cardDot        = document.getElementById("cardDot");
+const cardStatusEl   = document.getElementById("cardStatus");
+const cardBtnIcon    = document.getElementById("cardBtnIcon");
+const extractedBlock = document.getElementById("extractedBlock");
+let cardStream=null, cardArmed=false;
+
+function showExtracted(f) {
+  const rows = [
+    ["efRowName","efName",f.name],
+    ["efRowEmail","efEmail",f.email],
+    ["efRowPhone","efPhone",f.phone],
+    ["efRowCompany","efCompany",f.company],
+  ];
+  let any = false;
+  rows.forEach(([rowId,valId,val]) => {
+    const show = !!val;
+    document.getElementById(rowId).style.display = show ? "flex" : "none";
+    if (show) { document.getElementById(valId).textContent = val; any = true; }
+  });
+  if (any) extractedBlock.classList.add("show");
+}
+
+btnScanCard.addEventListener("click", async () => {
+  if (!cardArmed) {
+    try {
+      cardStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" } });
+      cardVideo.srcObject = cardStream;
+      cardVideo.style.display = "block";
+      cardPreview.style.display = "none";
+      cardArmed = true;
+      btnScanCard.querySelector(".btn-label").textContent = "Snap Card";
+      btnScanCard.querySelector(".btn-hint").textContent = "Point at card, then tap";
+      btnScanCard.classList.add("primary");
+    } catch { toast("Camera access denied.", "error"); }
+    return;
+  }
+  // Snap
+  const cv = document.createElement("canvas");
+  cv.width=cardVideo.videoWidth; cv.height=cardVideo.videoHeight;
+  cv.getContext("2d").drawImage(cardVideo,0,0);
+  cv.toBlob(async blob => {
+    cardBlob = blob;
+    cardPreview.src = URL.createObjectURL(blob);
+    cardPreview.style.display = "block";
+    cardVideo.style.display = "none";
+    cardStream.getTracks().forEach(t=>t.stop());
+    cardArmed = false;
+    btnScanCard.classList.remove("primary");
+    btnScanCard.querySelector(".btn-label").textContent = "Rescan Card";
+    btnScanCard.querySelector(".btn-hint").textContent = "Tap to replace";
+    btnScanCard.classList.add("success-state");
+    cardBtnIcon.textContent = "✓";
+    cardDot.className = "status-dot active";
+    cardStatusEl.textContent = "Reading…";
+
+    if (navigator.onLine) {
+      try {
+        const fd = new FormData();
+        fd.append("card", blob, "card.jpg");
+        const resp = await fetch(`${API_BASE}/api/scan-card`,{method:"POST",body:fd});
+        const data = await resp.json();
+        if (data.status==="success" && data.fields) {
+          cardExtracted = data.fields;
+          const n = Object.values(data.fields).filter(Boolean).length;
+          cardDot.className = "status-dot done";
+          cardStatusEl.textContent = n ? `${n} detail${n>1?"s":""} extracted — please verify` : "Card saved — no text read";
+          if (n) { showExtracted(data.fields); }
+        } else {
+          cardDot.className = "status-dot warn";
+          cardStatusEl.textContent = "Card saved — couldn't read text";
+        }
+      } catch {
+        cardDot.className = "status-dot warn";
+        cardStatusEl.textContent = "Saved — will extract on next sync";
+      }
+    } else {
+      cardDot.className = "status-dot done";
+      cardStatusEl.textContent = "Saved offline — uploads when online";
+    }
+    updateStepper(true, !!audioBlob, !!photoBlob);
+  }, "image/jpeg", 0.92);
+});
+
+/* ── STEP 2: AUDIO ──────────────────────────────────── */
+let mediaRecorder, audioChunks=[];
+const btnRecord   = document.getElementById("btnRecord");
+const btnStop     = document.getElementById("btnStop");
+const audioDot    = document.getElementById("audioDot");
+const audioStatusEl = document.getElementById("audioStatus");
+const audioPreview  = document.getElementById("audioPreview");
+
+btnRecord.addEventListener("click", async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => { if(e.data.size>0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      audioBlob = new Blob(audioChunks,{type:"audio/webm"});
+      audioPreview.src = URL.createObjectURL(audioBlob);
+      audioPreview.style.display = "block";
+      audioDot.className = "status-dot done";
+      audioStatusEl.textContent = "Recording saved";
+      stream.getTracks().forEach(t=>t.stop());
+      updateStepper(!!cardBlob, true, !!photoBlob);
+    };
+    mediaRecorder.start();
+    audioDot.className = "status-dot active";
+    audioStatusEl.textContent = "Recording…";
+    btnRecord.style.display = "none";
+    btnStop.style.display   = "flex";
+  } catch { toast("Microphone access denied.", "error"); }
+});
+btnStop.addEventListener("click", () => {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  btnRecord.style.display = "flex";
+  btnStop.style.display   = "none";
+});
+
+/* ── STEP 3: PHOTO ──────────────────────────────────── */
+const btnPhoto      = document.getElementById("btnPhoto");
+const photoVideo    = document.getElementById("photoVideo");
+const photoPreview  = document.getElementById("photoPreview");
+const photoDot      = document.getElementById("photoDot");
+const photoStatusEl = document.getElementById("photoStatus");
+const photoBtnIcon  = document.getElementById("photoBtnIcon");
+let photoStream=null, photoArmed=false;
+
+btnPhoto.addEventListener("click", async () => {
+  if (!photoArmed) {
+    try {
+      photoStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      photoVideo.srcObject = photoStream;
+      photoVideo.style.display = "block";
+      photoPreview.style.display = "none";
+      photoArmed = true;
+      btnPhoto.querySelector(".btn-label").textContent = "Snap Photo";
+      btnPhoto.querySelector(".btn-hint").textContent = "Point at customer, then tap";
+      btnPhoto.classList.add("primary");
+    } catch { toast("Camera access denied.", "error"); }
+    return;
+  }
+  const cv = document.createElement("canvas");
+  cv.width=photoVideo.videoWidth; cv.height=photoVideo.videoHeight;
+  cv.getContext("2d").drawImage(photoVideo,0,0);
+  cv.toBlob(blob => {
+    photoBlob = blob;
+    photoPreview.src = URL.createObjectURL(blob);
+    photoPreview.style.display = "block";
+    photoVideo.style.display   = "none";
+    photoStream.getTracks().forEach(t=>t.stop());
+    photoArmed = false;
+    btnPhoto.classList.remove("primary");
+    btnPhoto.classList.add("success-state");
+    btnPhoto.querySelector(".btn-label").textContent = "Retake Photo";
+    btnPhoto.querySelector(".btn-hint").textContent  = "Tap to replace";
+    photoBtnIcon.textContent = "✓";
+    photoDot.className = "status-dot done";
+    photoStatusEl.textContent = "Photo captured";
+    updateStepper(!!cardBlob, !!audioBlob, true);
+  }, "image/jpeg", 0.9);
+});
+
+/* ── SUBMIT ─────────────────────────────────────────── */
+const btnSubmit   = document.getElementById("btnSubmit");
+const submitRow   = document.getElementById("submitStatusRow");
+const submitDot   = document.getElementById("submitDot");
+const submitSt    = document.getElementById("submitStatus");
+const submitTrack = document.getElementById("submitProgressTrack");
+const submitFill  = document.getElementById("submitProgressFill");
+
+btnSubmit.addEventListener("click", async () => {
+  if (!audioBlob) { toast("Please record the conversation first.", "error"); return; }
+
+  btnSubmit.disabled = true;
+  submitRow.style.display = "flex";
+  submitDot.className = "status-dot active";
+  submitSt.textContent = "Saving…";
+
+  const rec = {
+    id: uid(),
+    repName: repName||"",
+    name:    cardExtracted.name   ||"",
+    email:   cardExtracted.email  ||"",
+    phone:   cardExtracted.phone  ||"",
+    company: cardExtracted.company||"",
+    industry:"", products:"", quantity:"1",
+    audioBlob,
+    photoBlob: photoBlob || cardBlob || new Blob([],{type:"image/jpeg"}),
+    cardBlob:  cardBlob||null,
+  };
+
+  if (!navigator.onLine) {
+    await qAdd(rec); await refreshBanner();
+    submitDot.className = "status-dot done";
+    submitSt.textContent = "Saved — will sync when online";
+    toast("Lead saved offline — syncs automatically.", "success");
+    setTimeout(reset, 2400);
+    return;
+  }
+
+  submitTrack.classList.add("show"); submitFill.style.width="0%";
+  try {
+    await sendToBackend(rec, pct => {
+      submitFill.style.width=pct+"%";
+      submitSt.textContent=`Uploading — ${pct}%`;
+    });
+    submitFill.style.width="100%";
+    submitDot.className="status-dot done";
+    submitSt.textContent="Lead submitted";
+    toast("Lead captured successfully.", "success");
+    setTimeout(reset, 2400);
+  } catch {
+    submitTrack.classList.remove("show");
+    await qAdd(rec); await refreshBanner();
+    submitDot.className="status-dot done";
+    submitSt.textContent="Saved — will sync when online";
+    toast("Offline — lead saved, will sync automatically.", "success");
+    setTimeout(reset, 2400);
+  }
+});
+
+/* ── RESET ──────────────────────────────────────────── */
+function reset() {
+  cardBlob=null; cardExtracted={};
+  cardPreview.style.display="none"; cardPreview.removeAttribute("src");
+  cardVideo.style.display="none";
+  if(cardStream){cardStream.getTracks().forEach(t=>t.stop());cardStream=null;}
+  cardArmed=false;
+  btnScanCard.className="action-btn";
+  btnScanCard.querySelector(".btn-label").textContent="Scan Card";
+  btnScanCard.querySelector(".btn-hint").textContent="Opens rear camera";
+  cardBtnIcon.textContent="";
+  cardDot.className="status-dot"; cardStatusEl.textContent="Waiting";
+  extractedBlock.classList.remove("show");
+  ["efRowName","efRowEmail","efRowPhone","efRowCompany"].forEach(id=>document.getElementById(id).style.display="none");
+
+  audioBlob=null;
+  audioPreview.style.display="none"; audioPreview.removeAttribute("src");
+  audioDot.className="status-dot"; audioStatusEl.textContent="Waiting";
+  btnRecord.style.display="flex"; btnStop.style.display="none";
+
+  photoBlob=null;
+  photoPreview.style.display="none"; photoPreview.removeAttribute("src");
+  photoVideo.style.display="none";
+  if(photoStream){photoStream.getTracks().forEach(t=>t.stop());photoStream=null;}
+  photoArmed=false;
+  btnPhoto.className="action-btn";
+  btnPhoto.querySelector(".btn-label").textContent="Capture Photo";
+  btnPhoto.querySelector(".btn-hint").textContent="Opens rear camera";
+  photoBtnIcon.textContent="";
+  photoDot.className="status-dot"; photoStatusEl.textContent="Waiting";
+
+  btnSubmit.disabled=false;
+  submitRow.style.display="none";
+  submitTrack.classList.remove("show"); submitFill.style.width="0%";
+  updateStepper(false,false,false);
+}
 </script>
 </body>
 </html>
