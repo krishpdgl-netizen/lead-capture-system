@@ -233,6 +233,110 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
     return "(Summary generation failed — check Render logs)"
 
 
+def extract_card_with_gemini(image_bytes: bytes, mime_type: str) -> dict:
+    """Sends a visiting-card photo to Gemini and returns extracted contact
+    fields as a dict: {name, email, phone, company}. Missing/unreadable
+    fields come back as empty strings. Returns {} entirely on failure so
+    the frontend can tell 'nothing extracted' apart from 'blank card'.
+
+    Mirrors summarize_audio_with_gemini's model-fallback pattern."""
+    if not GEMINI_API_KEY:
+        return {}
+
+    prompt = (
+        "This is a photo that should contain a business/visiting card. "
+        "Extract ONLY information that is clearly printed and readable on "
+        "the card. Respond with ONLY a JSON object, no markdown fences, no "
+        "explanation, in exactly this shape:\n"
+        '{"name": "", "email": "", "phone": "", "company": ""}\n'
+        "Rules:\n"
+        "- name: the person's full name as printed.\n"
+        "- email: the email address exactly as printed. Do not guess or "
+        "construct one from the domain/company — if no email is printed or "
+        "it is not fully readable, leave it as an empty string.\n"
+        "- phone: one phone number as printed, preferring a mobile number "
+        "if multiple are shown. Keep the printed formatting.\n"
+        "- company: the company/organization name as printed.\n"
+        "- If the image does not contain a readable business card at all, "
+        "return all four fields as empty strings.\n"
+        "- Never invent, infer, or autocomplete a value that is not "
+        "actually legible in the image. An empty string is always better "
+        "than a guess."
+    )
+
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": mime_type or "image/jpeg",
+                            "data": image_b64,
+                        }
+                    },
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.0,
+            "response_mime_type": "application/json",
+        },
+    }
+
+    for model in GEMINI_MODELS:
+        model = model.strip()
+        if not model:
+            continue
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={GEMINI_API_KEY}"
+        )
+        try:
+            resp = requests.post(url, json=payload, timeout=45)
+            resp.raise_for_status()
+            data = resp.json()
+
+            candidates = data.get("candidates", [])
+            if not candidates:
+                print(f"[Card extraction — no candidates, model={model}] response: {data}")
+                return {}
+
+            text = (
+                candidates[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+                .strip()
+            )
+            if not text:
+                print(f"[Card extraction — empty text, model={model}] response: {data}")
+                return {}
+
+            # Strip accidental markdown fences despite response_mime_type,
+            # since not every model version honors it perfectly.
+            text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
+            import json as _json
+            parsed = _json.loads(text)
+            result = {
+                "name": str(parsed.get("name", "") or "").strip(),
+                "email": str(parsed.get("email", "") or "").strip(),
+                "phone": str(parsed.get("phone", "") or "").strip(),
+                "company": str(parsed.get("company", "") or "").strip(),
+            }
+            print(f"[Card extraction succeeded, model={model}] fields found: "
+                  f"{[k for k, v in result.items() if v]}")
+            return result
+        except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+            error_body = getattr(getattr(exc, "response", None), "text", "")
+            print(f"[Card extraction failed, model={model}] {exc} | response body: {error_body}")
+            continue
+
+    return {}
+
+
 def save_lead_via_apps_script(
     lead_id: str,
     timestamp: str,
@@ -315,6 +419,24 @@ def diagnostics():
         "gdrive_folder_id_set": bool(GDRIVE_FOLDER_ID),
         "allowed_origins": ALLOWED_ORIGINS,
     }
+
+
+@app.post("/api/scan-card")
+async def scan_card(card: UploadFile = File(...)):
+    """Extracts contact fields from a visiting-card photo. Called by the
+    dashboard right after the rep snaps the card, so the form can auto-fill
+    for review before submission. Intentionally does NOT save anything —
+    the card photo travels with the normal lead submission."""
+    card_bytes = await card.read()
+    if not card_bytes:
+        raise HTTPException(status_code=400, detail="Empty image upload.")
+
+    fields = extract_card_with_gemini(card_bytes, card.content_type or "image/jpeg")
+
+    if not fields:
+        return {"status": "error", "message": "Could not read the card — please fill fields manually.", "fields": {}}
+
+    return {"status": "success", "fields": fields}
 
 
 @app.post("/api/submit-lead")
