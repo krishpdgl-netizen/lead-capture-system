@@ -929,32 +929,44 @@ btnSubmit.addEventListener("click", () => {
     cardBlob: cardBlob||null,
   };
 
-  // Reset the form immediately so the rep can start the next customer.
+  // Reset the form immediately — rep is free for the next customer.
   toast("Lead saved — uploading in background.", "success");
   reset();
 
-  // Upload in background — don't await it, form is already free.
-  // Queue locally first (instant), then sync. If qAdd fails, fall
-  // back to direct send so the lead is never lost.
+  // Run upload entirely off the UI thread so reset paints first.
   setTimeout(async () => {
-    let queued = false;
-    try {
-      await qAdd(rec);
-      queued = true;
-      refreshBanner();
-    } catch(err) {
-      console.error("qAdd failed, will try direct send:", err);
-    }
-    if (queued) {
-      syncQueue({ silent: true });
-    } else {
-      // qAdd failed (e.g. storage quota) — send directly as fallback
+    if (!navigator.onLine) {
+      // Offline — save to queue, will upload automatically when online.
       try {
-        await sendToBackend(rec, () => {});
+        await qAdd(rec);
+        refreshBanner();
       } catch(err) {
-        console.error("Direct send also failed:", err);
-        toast("Upload failed — please check connection and try again.", "error");
+        console.error("Offline qAdd failed:", err);
       }
+      return;
+    }
+
+    // Online — send directly in background. Also queue as backup so
+    // a mid-upload connection drop doesn't lose the lead.
+    try { await qAdd(rec); refreshBanner(); } catch(e) { /* non-fatal */ }
+
+    try {
+      await sendToBackend(rec, pct => {
+        syncFill.style.width = pct + "%";
+        syncTrack.classList.add("show");
+        syncBanner.classList.add("show");
+        syncText.textContent = `Uploading — ${pct}%`;
+      });
+      // Upload succeeded — remove from queue if it was saved there
+      try { await qDel(rec.id); } catch(e) {}
+      syncTrack.classList.remove("show");
+      syncFill.style.width = "0%";
+      await refreshBanner();
+    } catch(err) {
+      console.error("Background send failed, lead stays in queue:", err);
+      syncTrack.classList.remove("show");
+      await refreshBanner();
+      // Lead is in the queue, will sync on next online event / 20s tick
     }
   }, 0);
 });
