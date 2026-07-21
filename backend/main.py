@@ -2,7 +2,7 @@
 Event Lead Capture — FastAPI Backend
 -------------------------------------
 Receives lead submissions (form fields + audio + photo) from the frontend,
-transcribes the audio directly via the Gemini API, and sends the media
+transcribes the audio directly via the Groq Whisper API, and sends the media
 files + row data + transcript to a Google Apps Script Web App (which
 saves them to Drive and Sheets under your own Google account, with no
 Cloud billing/service-account setup required).
@@ -12,8 +12,6 @@ Deploy target: Render (or any ASGI host).
 
 import base64
 import os
-import subprocess
-import tempfile
 import uuid
 import datetime
 from typing import Optional
@@ -22,46 +20,36 @@ import requests
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-# imageio_ffmpeg is used to convert browser-recorded audio (webm) into a
-# format Gemini accepts (see _convert_to_wav below). Importing it is wrapped
-# in a try/except so that if it's ever missing or fails to install for any
-# reason, the WHOLE APP doesn't refuse to boot — leads still get saved, audio
-# conversion just gets skipped and it's logged clearly at startup instead of
-# crashing uvicorn. (This is exactly what caused the last deploy to roll back
-# silently to old code — a missing dependency took the entire API down.)
-try:
-    import imageio_ffmpeg
-    _FFMPEG_AVAILABLE = True
-except ImportError as exc:
-    imageio_ffmpeg = None
-    _FFMPEG_AVAILABLE = False
-    print(f"[STARTUP WARNING] imageio_ffmpeg not available ({exc}) — "
-          f"audio will be sent to Gemini in its original format, which may be rejected.")
+# Note: unlike the old Gemini path, no ffmpeg/webm-to-wav conversion is
+# needed here — Groq's transcription endpoint accepts webm (along with flac,
+# mp3, mp4, mpeg, mpga, m4a, ogg, wav) directly, so the raw browser-recorded
+# bytes are sent as-is.
 
 # ----------------------------------------------------------------------------
 # Configuration (all via environment variables — see .env.example)
 # ----------------------------------------------------------------------------
 APPS_SCRIPT_URL = os.getenv("APPS_SCRIPT_URL")            # Google Apps Script /exec URL
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")          # Drive folder to store audio/photos
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # Gemini API key (aistudio.google.com/apikey)
-# Pinned model versions (gemini-2.0-flash, gemini-2.5-flash-lite, gemini-2.5-flash,
-# etc.) keep getting closed off to new API keys as Google rotates its lineup.
-# "gemini-flash-latest" is Google's own auto-updating alias for the current
-# recommended Flash model, so it's the safer default — it won't need to be
-# manually bumped every time a pinned version gets deprecated. A second,
-# older model is kept as a fallback in case the alias itself ever has a
-# transient issue. Override via GEMINI_MODELS (comma-separated) if needed.
-GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-flash-latest,gemini-2.0-flash").split(",")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")                   # Groq API key (console.groq.com/keys)
+# whisper-large-v3-turbo is Groq's fastest/cheapest Whisper model and is
+# accurate enough for this use case; whisper-large-v3 is kept as a slower,
+# slightly more accurate fallback. Override via GROQ_WHISPER_MODELS
+# (comma-separated) if needed.
+GROQ_WHISPER_MODELS = os.getenv("GROQ_WHISPER_MODELS", "whisper-large-v3-turbo,whisper-large-v3").split(",")
+# Used to condense the raw Whisper transcript into a short summary (mirrors
+# what the old Gemini prompt produced). llama-3.3-70b-versatile is the more
+# capable option; llama-3.1-8b-instant is kept as a faster fallback.
+GROQ_SUMMARY_MODELS = os.getenv("GROQ_SUMMARY_MODELS", "llama-3.3-70b-versatile,llama-3.1-8b-instant").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
-if not GEMINI_API_KEY:
-    print("[STARTUP WARNING] GEMINI_API_KEY is not set — summaries will be skipped entirely.")
+if not GROQ_API_KEY:
+    print("[STARTUP WARNING] GROQ_API_KEY is not set — transcripts will be skipped entirely.")
 else:
     # Log a short, safe prefix only — never the full key — so it's possible to
     # confirm at a glance in Render's logs that the right key is loaded,
-    # without exposing it. Standard Google AI Studio keys start with "AIza".
-    print(f"[STARTUP] GEMINI_API_KEY loaded (starts with '{GEMINI_API_KEY[:6]}...', "
-          f"length {len(GEMINI_API_KEY)})")
+    # without exposing it. Standard Groq keys start with "gsk_".
+    print(f"[STARTUP] GROQ_API_KEY loaded (starts with '{GROQ_API_KEY[:6]}...', "
+          f"length {len(GROQ_API_KEY)})")
 
 app = FastAPI(title="Event Lead Capture API")
 
@@ -73,164 +61,154 @@ app.add_middleware(
 )
 
 
-def _convert_to_wav(audio_bytes: bytes) -> Optional[bytes]:
-    """Converts arbitrary audio bytes to WAV using a bundled static ffmpeg
-    binary (via imageio-ffmpeg — no system/apt install needed on Render).
-
-    This exists because the browser's MediaRecorder API (used on the
-    frontend) produces audio/webm (Opus codec), but Gemini's generateContent
-    API only officially supports WAV, MP3, AIFF, AAC, OGG Vorbis, and FLAC.
-    Sending audio/webm as-is reliably gets rejected with an "Unsupported MIME
-    type" error, which would otherwise look identical to any other failure.
-    Converting to WAV first avoids that entirely.
-
-    Returns None (rather than raising) if ffmpeg isn't available or
-    conversion fails, so a conversion hiccup falls back to attempting the
-    original bytes rather than blocking the lead from being saved."""
-    if not _FFMPEG_AVAILABLE:
-        return None
-
-    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-    src_path = dst_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as src:
-            src.write(audio_bytes)
-            src_path = src.name
-        dst_path = src_path + ".wav"
-
-        subprocess.run(
-            [ffmpeg_path, "-y", "-i", src_path, "-ar", "16000", "-ac", "1", dst_path],
-            check=True, capture_output=True, timeout=30,
-        )
-        with open(dst_path, "rb") as f:
-            return f.read()
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
-        stderr = getattr(exc, "stderr", b"")
-        stderr = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else stderr
-        print(f"[Audio conversion to WAV failed] {exc} | stderr: {stderr}")
-        return None
-    finally:
-        for path in (src_path, dst_path):
-            if path and os.path.exists(path):
-                os.remove(path)
+NO_SPEECH_MARKER = "(audio unclear — no reliable transcript)"
+# Whisper models are trained to always output *something*, so on silent or
+# near-silent clips they tend to hallucinate short generic phrases (e.g. "I
+# am going to get it") instead of returning empty text. verbose_json exposes
+# no_speech_prob per segment — how confident the model is that a segment
+# contains no real speech — which lets us catch and suppress that case
+# instead of passing hallucinated text downstream.
+NO_SPEECH_PROB_THRESHOLD = 0.6
 
 
-def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
-    """Sends the raw audio bytes to Gemini and returns a short summary of
-    what the lead said — no verbatim transcript, just the summary directly.
-    This is intentionally simpler than a full transcribe-then-summarize
-    prompt: fewer output tokens, nothing to parse out of a longer response.
+def transcribe_audio_with_groq(audio_bytes: bytes, mime_type: str, filename: str) -> str:
+    """Sends the raw audio bytes to Groq's hosted Whisper API and returns the
+    verbatim transcript, or NO_SPEECH_MARKER if the clip looks like
+    silence/noise rather than real speech (see NO_SPEECH_PROB_THRESHOLD).
 
-    Tries each model in GEMINI_MODELS in order, falling through to the next
-    on failure. Returns an empty string (rather than raising) if every model
-    fails, so a Gemini hiccup never blocks the lead from being saved."""
-    if not GEMINI_API_KEY:
+    Tries each model in GROQ_WHISPER_MODELS in order, falling through to the
+    next on failure. Returns an empty string (rather than raising) if every
+    model fails, so a Groq hiccup never blocks the lead from being saved."""
+    if not GROQ_API_KEY:
         return ""
 
-    # Convert to a Gemini-supported format first (see _convert_to_wav above).
-    # If conversion fails or ffmpeg isn't available, fall back to sending the
-    # original bytes/mime type — unlikely to succeed for webm, but a better
-    # fallback than giving up before even trying.
-    wav_bytes = _convert_to_wav(audio_bytes)
-    if wav_bytes is not None:
-        send_bytes, send_mime = wav_bytes, "audio/wav"
-    else:
-        send_bytes, send_mime = audio_bytes, mime_type
+    url = "https://api.groq.com/openai/v1/audio/transcriptions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
 
-    prompt = (
-        "You will listen to an audio clip that MAY OR MAY NOT contain a "
-        "real trade-show/event booth conversation. Many of these clips are "
-        "silent, near-silent, background noise, or too faint to make out "
-        "any words. Your first job is to judge, strictly from what is "
-        "actually audible, whether there is genuine intelligible human "
-        "speech about a product or business need — not to assume there "
-        "must be one.\n\n"
-        "If you do not clearly hear real, intelligible speech — including "
-        "cases of silence, faint room tone, static, muffled sound, or "
-        "isolated non-speech noise — respond with EXACTLY this text and "
-        "nothing else: (audio unclear — no reliable summary)\n\n"
-        "Do not guess, infer, or invent plausible-sounding details to fill "
-        "in a summary just because a summary is expected. A wrong summary "
-        "is worse than admitting the audio was unclear.\n\n"
-        "Only if you are confident real speech is present: in 5-6 "
-        "sentences, summarize what the customer is interested in, their "
-        "company or use case, and any specific needs or timelines they "
-        "mentioned. Quantity is captured separately on the form, so don't "
-        "guess a quantity from the audio unless it's clearly and "
-        "explicitly stated. Include a detail only if you actually heard it "
-        "said — never infer or assume something that wasn't mentioned. Do "
-        "not include a verbatim transcript — just the summary, as plain "
-        "text with no headers or labels.\n\n"
-        "Reminder: if there is any real doubt about whether intelligible "
-        "speech is present, respond with exactly: (audio unclear — no "
-        "reliable summary)"
-    )
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"inline_data": {"mime_type": send_mime, "data": base64.b64encode(send_bytes).decode("utf-8")}},
-                    {"text": prompt},
-                ]
-            }
-        ],
-        # Low temperature keeps the model close to what was actually said
-        # instead of embellishing gaps with plausible-sounding invented
-        # details (the main cause of hallucinated summaries).
-        "generationConfig": {
-            "temperature": 0.1,
-        },
-    }
-
-    for model in GEMINI_MODELS:
+    for model in GROQ_WHISPER_MODELS:
         model = model.strip()
         if not model:
             continue
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={GEMINI_API_KEY}"
-        )
         try:
-            resp = requests.post(url, json=payload, timeout=60)
+            resp = requests.post(
+                url,
+                headers=headers,
+                files={"file": (filename, audio_bytes, mime_type)},
+                # verbose_json includes per-segment no_speech_prob, needed to
+                # detect hallucinated text on silent/near-silent clips.
+                data={"model": model, "response_format": "verbose_json"},
+                timeout=180,
+            )
             resp.raise_for_status()
             data = resp.json()
 
-            candidates = data.get("candidates", [])
-            if not candidates:
-                # Request succeeded (200 OK) but Gemini returned zero
-                # candidates — usually a safety block or an empty/near-silent
-                # clip. Log the full response so this is diagnosable instead
-                # of just looking like a blank transcript again.
-                print(f"[Gemini summary — no candidates returned, model={model}] full response: {data}")
-                return "(No summary generated — audio may have been silent or too short)"
+            text = data.get("text", "").strip()
+            segments = data.get("segments", [])
 
-            finish_reason = candidates[0].get("finishReason", "")
-            summary = (
-                candidates[0]
-                .get("content", {})
-                .get("parts", [{}])[0]
-                .get("text", "")
-                .strip()
-            )
+            if not text:
+                print(f"[Groq transcript — empty text, model={model}] full response: {data}")
+                return NO_SPEECH_MARKER
 
-            if not summary:
-                # Call succeeded and returned a candidate, but with no text —
-                # log finishReason (e.g. SAFETY, MAX_TOKENS) so the cause is
-                # visible rather than looking identical to a total failure.
-                print(f"[Gemini summary — empty text, model={model}, finishReason={finish_reason}] full response: {data}")
-                return "(No summary generated — audio may have been silent or too short)"
+            # Average no_speech_prob across segments. This is meant to catch
+            # SHORT hallucinated phrases Whisper invents on essentially-silent
+            # clips (e.g. "I am going to get it" on empty audio) — it must
+            # NOT be used to discard long real transcripts. A long real call
+            # naturally has plenty of pause/listening segments mixed with
+            # speech ones, which drags the average up even though the call
+            # clearly has real content. So this only fires when there's also
+            # very little actual text — a real 26-minute conversation with a
+            # substantial word count is never discarded here, no matter what
+            # the averaged no_speech_prob looks like.
+            word_count = len(text.split())
+            if segments and word_count <= 8:
+                avg_no_speech = sum(s.get("no_speech_prob", 0.0) for s in segments) / len(segments)
+                if avg_no_speech >= NO_SPEECH_PROB_THRESHOLD:
+                    print(f"[Groq transcript — high no_speech_prob ({avg_no_speech:.2f}) on "
+                          f"{word_count}-word text, model={model}] discarding likely-hallucinated "
+                          f"text: {text!r}")
+                    return NO_SPEECH_MARKER
 
-            print(f"[Gemini summary succeeded, model={model}, length={len(summary)}]")
-            return summary
-        except (requests.RequestException, KeyError, IndexError) as exc:
-            # Logged (not raised) so a summarization failure never blocks the
+            print(f"[Groq transcript succeeded, model={model}, length={len(text)}]")
+            return text
+        except (requests.RequestException, KeyError) as exc:
+            # Logged (not raised) so a transcription failure never blocks the
             # lead from being saved — but printed so you can see the real
             # cause in Render's Logs tab. Falls through to the next model.
             error_body = getattr(getattr(exc, "response", None), "text", "")
-            print(f"[Gemini summary failed, model={model}] {exc} | response body: {error_body}")
+            print(f"[Groq transcript failed, model={model}] {exc} | response body: {error_body}")
             continue
 
-    return "(Summary generation failed — check Render logs)"
+    return "(Transcript generation failed — check Render logs)"
+
+
+SUMMARY_PROMPT = (
+    "You are given a verbatim transcript of an audio clip recorded at a "
+    "trade-show/event booth. Summarize in 3-5 sentences what the customer "
+    "is interested in, their company or use case, and any specific needs "
+    "or timelines they mentioned. Quantity is captured separately on the "
+    "form, so don't repeat a quantity from the transcript unless it's "
+    "clearly relevant context. Only include details that are actually "
+    "present in the transcript — never infer or assume anything that "
+    "wasn't said. If the transcript is too short, garbled, or unrelated to "
+    "a product/business conversation to summarize meaningfully, respond "
+    "with exactly: (transcript too unclear to summarize)\n\n"
+    "Respond with the summary only, as plain text with no headers or "
+    "labels.\n\nTranscript:\n"
+)
+
+
+def summarize_transcript_with_groq(transcript: str) -> str:
+    """Condenses a raw Whisper transcript into a short summary via a Groq
+    chat model. Grounding the summary in an actual transcript (rather than
+    having an LLM listen to raw audio directly, as the old Gemini path did)
+    makes it far less prone to inventing details, since there's real text to
+    stay anchored to.
+
+    Tries each model in GROQ_SUMMARY_MODELS in order, falling through to the
+    next on failure. Returns the original transcript (rather than raising or
+    returning empty) if every model fails, so a summarization hiccup never
+    loses the underlying transcript."""
+    if not GROQ_API_KEY or not transcript or transcript == NO_SPEECH_MARKER:
+        return transcript
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+    payload_base = {
+        "messages": [
+            {"role": "user", "content": SUMMARY_PROMPT + transcript}
+        ],
+        # Low temperature keeps the model close to what's actually in the
+        # transcript instead of embellishing gaps.
+        "temperature": 0.1,
+    }
+
+    for model in GROQ_SUMMARY_MODELS:
+        model = model.strip()
+        if not model:
+            continue
+        try:
+            resp = requests.post(
+                url, headers=headers, json={**payload_base, "model": model}, timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            summary = data["choices"][0]["message"]["content"].strip()
+
+            if not summary:
+                print(f"[Groq summary — empty content, model={model}] full response: {data}")
+                continue
+
+            print(f"[Groq summary succeeded, model={model}, length={len(summary)}]")
+            return summary
+        except (requests.RequestException, KeyError, IndexError) as exc:
+            error_body = getattr(getattr(exc, "response", None), "text", "")
+            print(f"[Groq summary failed, model={model}] {exc} | response body: {error_body}")
+            continue
+
+    # Every summary model failed — fall back to the raw transcript rather
+    # than losing the information entirely.
+    print("[Groq summary — all models failed, falling back to raw transcript]")
+    return transcript
 
 
 def save_lead_via_apps_script(
@@ -307,10 +285,10 @@ def diagnostics():
     """Quick, no-secrets-exposed way to check what's configured, without
     digging through Render logs. Visit this URL directly in a browser."""
     return {
-        "gemini_api_key_set": bool(GEMINI_API_KEY),
-        "gemini_api_key_prefix": (GEMINI_API_KEY[:6] + "...") if GEMINI_API_KEY else None,
-        "gemini_models": GEMINI_MODELS,
-        "ffmpeg_available": _FFMPEG_AVAILABLE,
+        "groq_api_key_set": bool(GROQ_API_KEY),
+        "groq_api_key_prefix": (GROQ_API_KEY[:6] + "...") if GROQ_API_KEY else None,
+        "groq_whisper_models": GROQ_WHISPER_MODELS,
+        "groq_summary_models": GROQ_SUMMARY_MODELS,
         "apps_script_url_set": bool(APPS_SCRIPT_URL),
         "gdrive_folder_id_set": bool(GDRIVE_FOLDER_ID),
         "allowed_origins": ALLOWED_ORIGINS,
@@ -347,13 +325,14 @@ async def submit_lead(
     audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
     photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
 
-    # Summarize directly here, while we still have the raw bytes in memory.
-    # Field name stays "transcript" throughout (Apps Script/Sheets) for
-    # compatibility with the existing downstream setup — it just now holds a
-    # short summary instead of a full verbatim transcript.
-    transcript = summarize_audio_with_gemini(
-        audio_bytes, audio.content_type or "audio/webm"
+    # Transcribe, then summarize, while we still have the raw bytes in
+    # memory. Field name stays "transcript" throughout (Apps Script/Sheets)
+    # for compatibility with the existing downstream setup — it holds the
+    # summary, same as the old Gemini version did.
+    raw_transcript = transcribe_audio_with_groq(
+        audio_bytes, audio.content_type or "audio/webm", audio_filename
     )
+    transcript = summarize_transcript_with_groq(raw_transcript)
 
     result = save_lead_via_apps_script(
         lead_id=lead_id,
