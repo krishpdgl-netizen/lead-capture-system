@@ -226,6 +226,17 @@
     <label for="company">Company</label>
     <input id="company" name="company" type="text" required placeholder="Company name" />
 
+    <label>Or scan a visiting card to auto-fill the fields above</label>
+    <div class="btn-row">
+      <button type="button" class="btn-photo" id="btnScanCard">&#128179; Scan Visiting Card</button>
+    </div>
+    <video id="cardVideo" autoplay playsinline style="display:none;"></video>
+    <img id="cardPreview" class="preview" alt="Visiting card" style="display:none;" />
+    <div class="status-row">
+      <span class="dot" id="cardDot"></span>
+      <span id="cardStatus">No card scanned</span>
+    </div>
+
     <label for="industry">Industry</label>
     <select id="industry" name="industry" required>
       <option value="" disabled selected>Select industry</option>
@@ -549,6 +560,93 @@
     btnStop.disabled = true;
   });
 
+  // ---------- VISITING CARD SCAN ----------
+  // Two-tap flow, same as customer photo: first tap opens the camera,
+  // second tap snaps. The snap is uploaded to /api/scan-card immediately
+  // and the extracted fields auto-fill the form for the rep to REVIEW —
+  // extraction can misread stylized fonts, so the rep stays the final
+  // check before submit. The card image is also kept and attached to the
+  // lead as its photo if no separate customer photo is captured.
+  let cardBlob = null;
+  const btnScanCard = document.getElementById("btnScanCard");
+  const cardVideo = document.getElementById("cardVideo");
+  const cardPreview = document.getElementById("cardPreview");
+  const cardDot = document.getElementById("cardDot");
+  const cardStatus = document.getElementById("cardStatus");
+  let cardStream = null;
+  let cardArmed = false;
+
+  btnScanCard.addEventListener("click", async () => {
+    if (!cardArmed) {
+      try {
+        cardStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        cardVideo.srcObject = cardStream;
+        cardVideo.style.display = "block";
+        cardPreview.style.display = "none";
+        cardArmed = true;
+        btnScanCard.textContent = "\u{1F4B3} Snap Card Now";
+      } catch (err) {
+        toast("Camera access denied or unavailable.", "error");
+      }
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = cardVideo.videoWidth;
+    canvas.height = cardVideo.videoHeight;
+    canvas.getContext("2d").drawImage(cardVideo, 0, 0);
+    canvas.toBlob(async (blob) => {
+      cardBlob = blob;
+      cardPreview.src = URL.createObjectURL(blob);
+      cardPreview.style.display = "block";
+      cardVideo.style.display = "none";
+      cardStream.getTracks().forEach((t) => t.stop());
+      cardArmed = false;
+      btnScanCard.textContent = "\u{1F4B3} Scan Visiting Card";
+
+      // Upload for extraction
+      cardDot.className = "dot";
+      cardStatus.textContent = "Reading card...";
+      try {
+        const fd = new FormData();
+        fd.append("card", blob, "card.jpg");
+        const resp = await fetch(`${API_BASE}/api/scan-card`, { method: "POST", body: fd });
+        const data = await resp.json();
+
+        if (data.status === "success" && data.fields) {
+          const f = data.fields;
+          let filled = 0;
+          // Fill each field with the extracted value. Existing typed-in
+          // values are NOT overwritten — the rep's manual input wins.
+          [["name", f.name], ["email", f.email], ["phone", f.phone], ["company", f.company]].forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (value && !el.value.trim()) {
+              el.value = value;
+              filled++;
+            }
+          });
+          if (filled > 0) {
+            cardDot.className = "dot done";
+            cardStatus.textContent = `Card read — ${filled} field${filled === 1 ? "" : "s"} filled. Please verify before submitting.`;
+            toast("Card scanned — please verify the filled details.", "success");
+          } else {
+            cardDot.className = "dot";
+            cardStatus.textContent = "Card read, but no new fields to fill.";
+          }
+        } else {
+          cardDot.className = "dot";
+          cardStatus.textContent = "Couldn't read the card — please fill fields manually.";
+          toast("Couldn't read the card. Fill the fields manually.", "error");
+        }
+      } catch (err) {
+        // Offline or backend unreachable — the card photo is still kept;
+        // the rep just fills the form manually like before.
+        cardDot.className = "dot";
+        cardStatus.textContent = "No connection — fill fields manually. Card photo kept.";
+        toast("Couldn't reach the server to read the card. Fill fields manually.", "error");
+      }
+    }, "image/jpeg", 0.9);
+  });
+
   // ---------- PHOTO CAPTURE ----------
   let photoBlob = null;
   const btnPhoto = document.getElementById("btnPhoto");
@@ -616,6 +714,16 @@
     photoDot.className = "dot";
     photoStatus.textContent = "No photo yet";
 
+    cardBlob = null;
+    cardPreview.style.display = "none";
+    cardPreview.removeAttribute("src");
+    cardVideo.style.display = "none";
+    if (cardStream) { cardStream.getTracks().forEach((t) => t.stop()); cardStream = null; }
+    cardArmed = false;
+    btnScanCard.textContent = "\u{1F4B3} Scan Visiting Card";
+    cardDot.className = "dot";
+    cardStatus.textContent = "No card scanned";
+
     btnSubmit.disabled = false;
     submitStatusRow.style.display = "none";
     submitDot.className = "dot";
@@ -646,7 +754,11 @@
   btnSubmit.addEventListener("click", async () => {
     if (!form.reportValidity()) return;
     if (!audioBlob) { toast("Please record the conversation before submitting.", "error"); return; }
-    if (!photoBlob) { toast("Please capture a customer photo before submitting.", "error"); return; }
+    // Either a customer photo OR a scanned visiting card satisfies the
+    // photo requirement — the card photo is used as the lead's photo when
+    // no separate customer photo was taken.
+    const effectivePhotoBlob = photoBlob || cardBlob;
+    if (!effectivePhotoBlob) { toast("Please capture a customer photo or scan a visiting card before submitting.", "error"); return; }
 
     btnSubmit.disabled = true;
     submitStatusRow.style.display = "flex";
@@ -664,7 +776,7 @@
       products: document.getElementById("products").value,
       quantity: document.getElementById("quantity").value || "1",
       audioBlob,
-      photoBlob,
+      photoBlob: effectivePhotoBlob,
     };
 
     // If we're already known to be offline, skip straight to queuing —
