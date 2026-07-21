@@ -36,6 +36,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")                   # Groq API key (conso
 # slightly more accurate fallback. Override via GROQ_WHISPER_MODELS
 # (comma-separated) if needed.
 GROQ_WHISPER_MODELS = os.getenv("GROQ_WHISPER_MODELS", "whisper-large-v3-turbo,whisper-large-v3").split(",")
+# Used to condense the raw Whisper transcript into a short summary (mirrors
+# what the old Gemini prompt produced). llama-3.3-70b-versatile is the more
+# capable option; llama-3.1-8b-instant is kept as a faster fallback.
+GROQ_SUMMARY_MODELS = os.getenv("GROQ_SUMMARY_MODELS", "llama-3.3-70b-versatile,llama-3.1-8b-instant").split(",")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 if not GROQ_API_KEY:
@@ -57,15 +61,20 @@ app.add_middleware(
 )
 
 
+NO_SPEECH_MARKER = "(audio unclear — no reliable transcript)"
+# Whisper models are trained to always output *something*, so on silent or
+# near-silent clips they tend to hallucinate short generic phrases (e.g. "I
+# am going to get it") instead of returning empty text. verbose_json exposes
+# no_speech_prob per segment — how confident the model is that a segment
+# contains no real speech — which lets us catch and suppress that case
+# instead of passing hallucinated text downstream.
+NO_SPEECH_PROB_THRESHOLD = 0.6
+
+
 def transcribe_audio_with_groq(audio_bytes: bytes, mime_type: str, filename: str) -> str:
     """Sends the raw audio bytes to Groq's hosted Whisper API and returns the
-    verbatim transcript.
-
-    Unlike the old Gemini path (a general LLM prone to inventing plausible-
-    sounding summaries for silent/unclear clips), Whisper is a dedicated
-    speech-to-text model, so this returns an actual transcript rather than a
-    summary. The "transcript" field name/column downstream is unchanged, it
-    now just holds real transcribed text instead of a Gemini-written summary.
+    verbatim transcript, or NO_SPEECH_MARKER if the clip looks like
+    silence/noise rather than real speech (see NO_SPEECH_PROB_THRESHOLD).
 
     Tries each model in GROQ_WHISPER_MODELS in order, falling through to the
     next on failure. Returns an empty string (rather than raising) if every
@@ -85,19 +94,31 @@ def transcribe_audio_with_groq(audio_bytes: bytes, mime_type: str, filename: str
                 url,
                 headers=headers,
                 files={"file": (filename, audio_bytes, mime_type)},
-                data={"model": model, "response_format": "json"},
+                # verbose_json includes per-segment no_speech_prob, needed to
+                # detect hallucinated text on silent/near-silent clips.
+                data={"model": model, "response_format": "verbose_json"},
                 timeout=60,
             )
             resp.raise_for_status()
             data = resp.json()
 
             text = data.get("text", "").strip()
+            segments = data.get("segments", [])
+
             if not text:
-                # Request succeeded (200 OK) but returned no text — usually a
-                # silent/near-silent clip. Log the full response so this is
-                # diagnosable instead of just looking like a blank transcript.
                 print(f"[Groq transcript — empty text, model={model}] full response: {data}")
-                return "(No transcript generated — audio may have been silent or too short)"
+                return NO_SPEECH_MARKER
+
+            # Average no_speech_prob across segments. If Whisper itself is
+            # confident there was no real speech, treat the text as a
+            # hallucination rather than a real transcript, regardless of how
+            # plausible it reads.
+            if segments:
+                avg_no_speech = sum(s.get("no_speech_prob", 0.0) for s in segments) / len(segments)
+                if avg_no_speech >= NO_SPEECH_PROB_THRESHOLD:
+                    print(f"[Groq transcript — high no_speech_prob ({avg_no_speech:.2f}), "
+                          f"model={model}] discarding likely-hallucinated text: {text!r}")
+                    return NO_SPEECH_MARKER
 
             print(f"[Groq transcript succeeded, model={model}, length={len(text)}]")
             return text
@@ -110,6 +131,76 @@ def transcribe_audio_with_groq(audio_bytes: bytes, mime_type: str, filename: str
             continue
 
     return "(Transcript generation failed — check Render logs)"
+
+
+SUMMARY_PROMPT = (
+    "You are given a verbatim transcript of an audio clip recorded at a "
+    "trade-show/event booth. Summarize in 3-5 sentences what the customer "
+    "is interested in, their company or use case, and any specific needs "
+    "or timelines they mentioned. Quantity is captured separately on the "
+    "form, so don't repeat a quantity from the transcript unless it's "
+    "clearly relevant context. Only include details that are actually "
+    "present in the transcript — never infer or assume anything that "
+    "wasn't said. If the transcript is too short, garbled, or unrelated to "
+    "a product/business conversation to summarize meaningfully, respond "
+    "with exactly: (transcript too unclear to summarize)\n\n"
+    "Respond with the summary only, as plain text with no headers or "
+    "labels.\n\nTranscript:\n"
+)
+
+
+def summarize_transcript_with_groq(transcript: str) -> str:
+    """Condenses a raw Whisper transcript into a short summary via a Groq
+    chat model. Grounding the summary in an actual transcript (rather than
+    having an LLM listen to raw audio directly, as the old Gemini path did)
+    makes it far less prone to inventing details, since there's real text to
+    stay anchored to.
+
+    Tries each model in GROQ_SUMMARY_MODELS in order, falling through to the
+    next on failure. Returns the original transcript (rather than raising or
+    returning empty) if every model fails, so a summarization hiccup never
+    loses the underlying transcript."""
+    if not GROQ_API_KEY or not transcript or transcript == NO_SPEECH_MARKER:
+        return transcript
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+    payload_base = {
+        "messages": [
+            {"role": "user", "content": SUMMARY_PROMPT + transcript}
+        ],
+        # Low temperature keeps the model close to what's actually in the
+        # transcript instead of embellishing gaps.
+        "temperature": 0.1,
+    }
+
+    for model in GROQ_SUMMARY_MODELS:
+        model = model.strip()
+        if not model:
+            continue
+        try:
+            resp = requests.post(
+                url, headers=headers, json={**payload_base, "model": model}, timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            summary = data["choices"][0]["message"]["content"].strip()
+
+            if not summary:
+                print(f"[Groq summary — empty content, model={model}] full response: {data}")
+                continue
+
+            print(f"[Groq summary succeeded, model={model}, length={len(summary)}]")
+            return summary
+        except (requests.RequestException, KeyError, IndexError) as exc:
+            error_body = getattr(getattr(exc, "response", None), "text", "")
+            print(f"[Groq summary failed, model={model}] {exc} | response body: {error_body}")
+            continue
+
+    # Every summary model failed — fall back to the raw transcript rather
+    # than losing the information entirely.
+    print("[Groq summary — all models failed, falling back to raw transcript]")
+    return transcript
 
 
 def save_lead_via_apps_script(
@@ -189,6 +280,7 @@ def diagnostics():
         "groq_api_key_set": bool(GROQ_API_KEY),
         "groq_api_key_prefix": (GROQ_API_KEY[:6] + "...") if GROQ_API_KEY else None,
         "groq_whisper_models": GROQ_WHISPER_MODELS,
+        "groq_summary_models": GROQ_SUMMARY_MODELS,
         "apps_script_url_set": bool(APPS_SCRIPT_URL),
         "gdrive_folder_id_set": bool(GDRIVE_FOLDER_ID),
         "allowed_origins": ALLOWED_ORIGINS,
@@ -225,12 +317,14 @@ async def submit_lead(
     audio_filename = f"{lead_id}_{name.replace(' ', '_')}_audio.webm"
     photo_filename = f"{lead_id}_{name.replace(' ', '_')}_photo.jpg"
 
-    # Transcribe directly here, while we still have the raw bytes in memory.
-    # Field name stays "transcript" throughout (Apps Script/Sheets) for
-    # compatibility with the existing downstream setup.
-    transcript = transcribe_audio_with_groq(
+    # Transcribe, then summarize, while we still have the raw bytes in
+    # memory. Field name stays "transcript" throughout (Apps Script/Sheets)
+    # for compatibility with the existing downstream setup — it holds the
+    # summary, same as the old Gemini version did.
+    raw_transcript = transcribe_audio_with_groq(
         audio_bytes, audio.content_type or "audio/webm", audio_filename
     )
+    transcript = summarize_transcript_with_groq(raw_transcript)
 
     result = save_lead_via_apps_script(
         lead_id=lead_id,
