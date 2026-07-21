@@ -250,9 +250,11 @@ def extract_card_with_gemini(image_bytes: bytes, mime_type: str) -> dict:
         "Extract ONLY information that is clearly printed and readable on "
         "the card. Respond with ONLY a JSON object, no markdown fences, no "
         "explanation, in exactly this shape:\n"
-        '{"name": "", "email": "", "phone": "", "company": ""}\n'
+        '{"name": "", "designation": "", "email": "", "phone": "", "company": ""}\n'
         "Rules:\n"
         "- name: the person's full name as printed.\n"
+        "- designation: their job title or role as printed (e.g. 'Sales Manager', "
+        "'Director', 'CEO'). Leave empty if not printed or not clearly readable.\n"
         "- email: the email address exactly as printed. Do not guess or "
         "construct one from the domain/company — if no email is printed or "
         "it is not fully readable, leave it as an empty string.\n"
@@ -260,7 +262,7 @@ def extract_card_with_gemini(image_bytes: bytes, mime_type: str) -> dict:
         "if multiple are shown. Keep the printed formatting.\n"
         "- company: the company/organization name as printed.\n"
         "- If the image does not contain a readable business card at all, "
-        "return all four fields as empty strings.\n"
+        "return all five fields as empty strings.\n"
         "- Never invent, infer, or autocomplete a value that is not "
         "actually legible in the image. An empty string is always better "
         "than a guess."
@@ -332,6 +334,7 @@ def extract_card_with_gemini(image_bytes: bytes, mime_type: str) -> dict:
             parsed, _ = _json.JSONDecoder().raw_decode(text[start:])
             result = {
                 "name": str(parsed.get("name", "") or "").strip(),
+                "designation": str(parsed.get("designation", "") or "").strip(),
                 "email": str(parsed.get("email", "") or "").strip(),
                 "phone": str(parsed.get("phone", "") or "").strip(),
                 "company": str(parsed.get("company", "") or "").strip(),
@@ -355,6 +358,7 @@ def save_lead_via_apps_script(
     email: str,
     phone: str,
     company: str,
+    designation: str,
     industry: str,
     products: str,
     quantity: str,
@@ -387,6 +391,7 @@ def save_lead_via_apps_script(
         "email": email,
         "phone": phone,
         "company": company,
+        "designation": designation,
         "industry": industry,
         "products": products,
         "quantity": quantity,
@@ -463,6 +468,7 @@ async def submit_lead(
     email: str = Form(""),
     phone: str = Form(""),
     company: str = Form(""),
+    designation: str = Form(""),
     industry: str = Form(""),
     products: Optional[str] = Form(""),
     quantity: Optional[str] = Form("1"),
@@ -495,6 +501,7 @@ async def submit_lead(
         email=email,
         phone=phone,
         company=company,
+        designation=designation,
         industry=industry,
         products=products,
         quantity=quantity,
