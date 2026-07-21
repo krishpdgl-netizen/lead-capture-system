@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="manifest" href="./manifest.json" />
+<meta name="theme-color" content="#1B2A4A" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
 <title>Event Lead Capture</title>
 <style>
   :root {
@@ -19,187 +22,126 @@
     font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     background: var(--ice);
     color: var(--navy);
-    overscroll-behavior-y: contain; /* blocks accidental pull-to-refresh */
+    overscroll-behavior-y: contain;
   }
-  .wrap {
-    max-width: 560px;
-    margin: 0 auto;
-    padding: 24px 20px 60px;
-  }
-  header {
-    text-align: center;
-    padding: 20px 0 10px;
-  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  header { text-align: center; padding: 20px 0 10px; }
   header h1 { font-size: 22px; margin: 0 0 4px; }
-  header p { margin: 0; color: var(--gray); font-size: 13px; }
+  header p  { margin: 0; color: var(--gray); font-size: 13px; }
 
-  .card {
-    background: #fff;
-    border-radius: 14px;
-    padding: 20px;
-    margin-top: 18px;
-    box-shadow: 0 4px 16px rgba(27,42,74,0.08);
-  }
-  label {
-    display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--gray);
-    margin: 14px 0 6px;
-  }
-  label:first-child { margin-top: 0; }
-  input, select {
-    width: 100%;
-    padding: 12px 14px;
-    border-radius: 10px;
-    border: 1px solid #DCE6F7;
-    font-size: 15px;
-    background: #fff;
-    color: var(--navy);
-  }
-  input:focus, select:focus { outline: 2px solid var(--accent); }
-
-  .btn-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-top: 18px;
-  }
-  button {
-    border: none;
-    border-radius: 24px;
-    padding: 13px 10px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: #fff;
-  }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
-  .btn-record { background: var(--accent); }
-  .btn-stop { background: var(--navy); }
-  .btn-photo { background: var(--navy); grid-column: span 2; }
-  .btn-submit { background: var(--green); grid-column: span 2; padding: 15px; font-size: 15px; }
-
-  .status-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 14px;
-    font-size: 13px;
-    color: var(--gray);
-  }
-  .dot {
-    width: 9px; height: 9px; border-radius: 50%;
-    background: #C7D3EA;
-  }
-  .dot.active { background: var(--red); animation: pulse 1s infinite; }
-  .dot.done { background: var(--green); }
-  @keyframes pulse { 50% { opacity: 0.3; } }
-
-  video, img.preview {
-    width: 100%;
-    border-radius: 10px;
-    margin-top: 10px;
-    display: none;
-  }
-
-  #toast {
-    position: fixed;
-    left: 50%; bottom: 24px;
-    transform: translateX(-50%);
-    background: var(--navy);
-    color: #fff;
-    padding: 12px 20px;
-    border-radius: 10px;
-    font-size: 14px;
-    display: none;
-    z-index: 50;
-    max-width: 90%;
-    text-align: center;
-  }
-  #toast.error { background: var(--red); }
-  #toast.success { background: var(--green); }
-
-  .footer-note {
-    text-align: center;
-    font-size: 11px;
-    color: var(--gray);
-    margin-top: 20px;
-  }
-
-  .sync-banner {
-    display: none;
-    flex-direction: column;
-    gap: 6px;
-    background: #FFF6E5;
-    border: 1px solid #F3D99A;
-    color: #8A6100;
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 12.5px;
-    margin-top: 14px;
-  }
-  .sync-banner.show { display: flex; }
-  .sync-banner-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .sync-banner button {
-    background: #8A6100;
-    color: #fff;
-    border-radius: 16px;
-    padding: 6px 12px;
-    font-size: 12px;
-    white-space: nowrap;
-    border: none;
-    cursor: pointer;
-  }
   .conn-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    display: inline-block; margin-right: 6px;
-    background: var(--green);
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--green);
+    margin-right: 5px; vertical-align: middle;
   }
   .conn-dot.offline { background: var(--red); }
 
+  .sync-banner {
+    display: none; background: #fff3cd; border: 1px solid #ffc107;
+    border-radius: 10px; padding: 10px 14px; margin-top: 14px; font-size: 13px;
+  }
+  .sync-banner.show { display: block; }
+  .sync-banner-top { display: flex; justify-content: space-between; align-items: center; }
+  #btnSyncNow {
+    font-size: 12px; padding: 5px 12px; border-radius: 20px;
+    border: none; background: var(--navy); color: #fff; cursor: pointer;
+  }
   .progress-track {
-    width: 100%;
-    height: 6px;
-    background: #E4ECFA;
-    border-radius: 4px;
-    overflow: hidden;
-    margin-top: 8px;
-    display: none;
+    height: 4px; background: #e0e7ef; border-radius: 2px;
+    margin-top: 8px; display: none;
   }
   .progress-track.show { display: block; }
-  .progress-fill {
-    height: 100%;
-    width: 0%;
-    background: var(--accent);
-    border-radius: 4px;
-    transition: width 0.15s ease;
+  .progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width .2s; }
+
+  .card {
+    background: #fff; border-radius: 14px; padding: 20px;
+    margin-top: 18px; box-shadow: 0 4px 16px rgba(27,42,74,0.08);
   }
-  .sync-banner .progress-track { background: #F3E3B8; }
-  .sync-banner .progress-fill { background: #8A6100; }
+  .section-label {
+    font-size: 12px; font-weight: 700; color: var(--gray);
+    text-transform: uppercase; letter-spacing: .5px;
+    margin: 0 0 14px;
+  }
+
+  /* Big tap-friendly action buttons */
+  .action-btn {
+    width: 100%; padding: 18px 16px; border: none; border-radius: 12px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    display: flex; align-items: center; gap: 12px;
+    transition: opacity .15s;
+  }
+  .action-btn:active { opacity: .75; }
+  .action-btn .icon { font-size: 24px; flex-shrink: 0; }
+  .action-btn .label { text-align: left; line-height: 1.3; }
+  .action-btn .sub { font-size: 12px; font-weight: 400; opacity: .8; }
+
+  .btn-card   { background: #EAF0FB; color: var(--navy); margin-bottom: 10px; }
+  .btn-record { background: var(--navy); color: #fff; margin-bottom: 10px; }
+  .btn-stop   { background: var(--red); color: #fff; margin-bottom: 10px; display: none; }
+  .btn-photo  { background: #EAF0FB; color: var(--navy); }
+  .btn-submit { background: var(--accent); color: #fff; font-size: 17px; font-weight: 700;
+                width: 100%; padding: 18px; border: none; border-radius: 12px; cursor: pointer; }
+  .btn-submit:disabled { opacity: .5; cursor: not-allowed; }
+
+  video, .preview {
+    width: 100%; border-radius: 10px; margin-top: 0; margin-bottom: 12px;
+    display: none; background: #000;
+  }
+  .preview { object-fit: cover; }
+
+  .status-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--gray); margin-top: 10px;
+  }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #ddd; flex-shrink: 0;
+  }
+  .dot.active { background: var(--accent); animation: pulse 1s infinite; }
+  .dot.done   { background: var(--green); }
+  .dot.warn   { background: #ffc107; }
+  @keyframes pulse {
+    0%,100% { opacity: 1; } 50% { opacity: .4; }
+  }
+
+  /* Card scan extracted fields — shown after a successful scan */
+  .extracted-fields {
+    display: none; background: #f0f9f4; border: 1px solid #b7e5cc;
+    border-radius: 10px; padding: 12px 14px; margin-top: 12px; font-size: 13px;
+  }
+  .extracted-fields.show { display: block; }
+  .extracted-fields strong { display: block; color: var(--navy); margin-bottom: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+  .field-row { display: flex; gap: 6px; margin-bottom: 4px; color: var(--gray); }
+  .field-row span:first-child { font-weight: 600; min-width: 64px; color: var(--navy); }
+
+  #audioPreview { width: 100%; margin-top: 10px; display: none; }
+
+  #submitStatusRow { display: none; }
+
+  #toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    background: #1B2A4A; color: #fff; padding: 12px 22px; border-radius: 24px;
+    font-size: 14px; opacity: 0; pointer-events: none;
+    transition: opacity .25s; white-space: nowrap; z-index: 9999;
+    max-width: 90vw; text-align: center;
+  }
+  #toast.show { opacity: 1; }
+
+  .footer-note { text-align: center; font-size: 12px; color: var(--gray); margin-top: 28px; }
 </style>
 </head>
 <body>
 <div class="wrap">
+
   <header>
-    <h1>Event Lead Capture</h1>
-    <p>Capture the conversation. Let AI handle the rest.</p>
-    <p style="font-size:11px; margin-top:6px;">
+    <h1>&#9889; Lead Capture</h1>
+    <p>
       <span class="conn-dot" id="connDot"></span><span id="connLabel">Online</span>
-    </p>
-    <p style="font-size:11.5px; margin-top:8px; color:var(--gray);">
+      &nbsp;&middot;&nbsp;
       Rep: <strong id="repNameDisplay">-</strong>
-      &nbsp;·&nbsp;
-      <a href="#" id="switchUserLink" style="color:var(--accent); text-decoration:none;">Not you?</a>
+      &nbsp;&middot;&nbsp;
+      <a href="#" id="switchUserLink" style="color:var(--accent);text-decoration:none;">Not you?</a>
     </p>
   </header>
 
@@ -213,75 +155,68 @@
     </div>
   </div>
 
-  <form class="card" id="leadForm">
-    <label for="name">Name</label>
-    <input id="name" name="name" type="text" required placeholder="Customer name" />
-
-    <label for="email">Email</label>
-    <input id="email" name="email" type="email" required placeholder="customer@company.com" />
-
-    <label for="phone">Phone Number</label>
-    <input id="phone" name="phone" type="tel" required placeholder="+91 90000 00000" />
-
-    <label for="company">Company</label>
-    <input id="company" name="company" type="text" required placeholder="Company name" />
-
-    <label>Or scan a visiting card to auto-fill the fields above</label>
-    <div class="btn-row">
-      <button type="button" class="btn-photo" id="btnScanCard">&#128179; Scan Visiting Card</button>
-    </div>
-    <video id="cardVideo" autoplay playsinline style="display:none;"></video>
-    <img id="cardPreview" class="preview" alt="Visiting card" style="display:none;" />
+  <!-- STEP 1: VISITING CARD -->
+  <div class="card">
+    <p class="section-label">&#128179; Step 1 — Visiting Card</p>
+    <video id="cardVideo" autoplay playsinline></video>
+    <img id="cardPreview" class="preview" alt="Visiting card" />
+    <button type="button" class="action-btn btn-card" id="btnScanCard">
+      <span class="icon">&#128247;</span>
+      <span class="label">
+        Scan Card
+        <span class="sub">Auto-extracts contact details when online</span>
+      </span>
+    </button>
     <div class="status-row">
       <span class="dot" id="cardDot"></span>
       <span id="cardStatus">No card scanned</span>
     </div>
-
-    <label for="industry">Industry</label>
-    <select id="industry" name="industry" required>
-      <option value="" disabled selected>Select industry</option>
-      <option>Manufacturing</option>
-      <option>Retail</option>
-      <option>Healthcare</option>
-      <option>IT & Software</option>
-      <option>Education</option>
-      <option>Other</option>
-    </select>
-
-    <label for="products">Products Interested In</label>
-    <input id="products" name="products" type="text" placeholder="e.g. Product A, Product B" />
-
-    <label for="quantity">Quantity</label>
-    <input id="quantity" name="quantity" type="number" min="1" step="1" placeholder="e.g. 1" value="1" />
-  </form>
-
-  <div class="card">
-    <label style="margin-top:0;">Conversation Recording</label>
-    <div class="btn-row">
-      <button type="button" class="btn-record" id="btnRecord">&#127908; Start Recording</button>
-      <button type="button" class="btn-stop" id="btnStop" disabled>&#9209; Stop Recording</button>
+    <div class="extracted-fields" id="extractedFields">
+      <strong>&#10003; Extracted from card</strong>
+      <div class="field-row" id="efName" style="display:none;"><span>Name</span><span id="efNameVal"></span></div>
+      <div class="field-row" id="efEmail" style="display:none;"><span>Email</span><span id="efEmailVal"></span></div>
+      <div class="field-row" id="efPhone" style="display:none;"><span>Phone</span><span id="efPhoneVal"></span></div>
+      <div class="field-row" id="efCompany" style="display:none;"><span>Company</span><span id="efCompanyVal"></span></div>
     </div>
+  </div>
+
+  <!-- STEP 2: AUDIO -->
+  <div class="card">
+    <p class="section-label">&#127908; Step 2 — Record Conversation</p>
+    <button type="button" class="action-btn btn-record" id="btnRecord">
+      <span class="icon">&#9679;</span>
+      <span class="label">Start Recording<span class="sub">Tap to begin</span></span>
+    </button>
+    <button type="button" class="action-btn btn-stop" id="btnStop">
+      <span class="icon">&#9209;</span>
+      <span class="label">Stop Recording<span class="sub">Tap when done</span></span>
+    </button>
     <div class="status-row">
       <span class="dot" id="audioDot"></span>
       <span id="audioStatus">No recording yet</span>
     </div>
-    <audio id="audioPreview" controls style="width:100%; margin-top:10px; display:none;"></audio>
+    <audio id="audioPreview" controls></audio>
+  </div>
 
-    <label>Customer Photo</label>
-    <div class="btn-row">
-      <button type="button" class="btn-photo" id="btnPhoto">&#128247; Capture Photo</button>
-    </div>
-    <video id="video" autoplay playsinline></video>
-    <img id="photoPreview" class="preview" alt="Captured photo" />
+  <!-- STEP 3: PHOTO -->
+  <div class="card">
+    <p class="section-label">&#128247; Step 3 — Customer Photo</p>
+    <video id="photoVideo" autoplay playsinline></video>
+    <img id="photoPreview" class="preview" alt="Customer photo" />
+    <button type="button" class="action-btn btn-photo" id="btnPhoto">
+      <span class="icon">&#128247;</span>
+      <span class="label">Capture Photo<span class="sub">Tap to open camera</span></span>
+    </button>
     <div class="status-row">
       <span class="dot" id="photoDot"></span>
       <span id="photoStatus">No photo yet</span>
     </div>
   </div>
 
+  <!-- SUBMIT -->
   <div class="card">
-    <button type="button" class="btn-submit" id="btnSubmit" style="width:100%;">&#9989; Submit</button>
-    <div class="status-row" id="submitStatusRow" style="display:none;">
+    <button type="button" class="btn-submit" id="btnSubmit">&#9989; Submit Lead</button>
+    <div class="status-row" id="submitStatusRow" style="margin-top:12px;">
       <span class="dot" id="submitDot"></span>
       <span id="submitStatus">Uploading...</span>
     </div>
@@ -290,15 +225,12 @@
     </div>
   </div>
 
-  <p class="footer-note">Your data is uploaded securely and processed automatically. No further action needed.</p>
+  <p class="footer-note">Leads are saved on this device if offline and sync automatically when connected.</p>
 </div>
 
 <div id="toast"></div>
 
 <script>
-  // Register the service worker that caches the app shell, so a reload
-  // while offline (e.g. an accidental pull-to-refresh) still renders the
-  // app instead of the browser's native offline page.
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
       navigator.serviceWorker.register("./sw.js").catch((err) => {
@@ -307,59 +239,43 @@
     });
   }
 
-  // ----- CONFIG -----
-  // Point this at your deployed FastAPI backend (Render URL), e.g.
-  // const API_BASE = "https://your-app.onrender.com";
   const API_BASE = window.LEAD_CAPTURE_API_BASE || "https://lead-capture-system-xxfp.onrender.com";
 
   // ---------- REP LOGIN GUARD ----------
-  // This page assumes a rep name was already captured on the login page
-  // (index.html) and stored in localStorage. If it's missing — e.g. someone
-  // bookmarked this page directly, or storage was cleared — bounce back to
-  // login rather than letting a lead get submitted with no rep attached.
   const REP_NAME_KEY = "lead_capture_rep_name";
   const repName = localStorage.getItem(REP_NAME_KEY);
-  if (!repName) {
-    window.location.href = "index.html";
-  }
-  document.getElementById("repNameDisplay").textContent = repName || "-";
+  if (!repName) { window.location.href = "index.html"; }
+  document.getElementById("repNameDisplay").textContent = repName || "";
   document.getElementById("switchUserLink").addEventListener("click", (e) => {
     e.preventDefault();
     localStorage.removeItem(REP_NAME_KEY);
     window.location.href = "index.html";
   });
 
-  const toast = (msg, type = "") => {
-    const el = document.getElementById("toast");
-    el.textContent = msg;
-    el.className = type;
-    el.style.display = "block";
-    clearTimeout(window.__toastTimer);
-    window.__toastTimer = setTimeout(() => (el.style.display = "none"), 3500);
-  };
+  // ---------- TOAST ----------
+  const toastEl = document.getElementById("toast");
+  let toastTimer;
+  function toast(msg, type = "info") {
+    toastEl.textContent = msg;
+    toastEl.style.background = type === "error" ? "#D65A56" : type === "success" ? "#2FA36B" : "#1B2A4A";
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3500);
+  }
 
   // ---------- OFFLINE QUEUE (IndexedDB) ----------
-  // Stores full lead submissions (fields + audio/photo blobs) locally
-  // whenever the backend can't be reached, then flushes them automatically
-  // once the connection returns. This means a wifi drop at the booth never
-  // loses a captured lead — it just waits on the device until it can send.
   const DB_NAME = "lead_capture_offline";
-  const STORE_NAME = "pending_leads";
+  const DB_VERSION = 1;
+  const STORE_NAME = "queue";
 
   function openQueueDB() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: "id" });
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME, { keyPath: "id" });
+      req.onsuccess = (e) => resolve(e.target.result);
       req.onerror = () => reject(req.error);
     });
   }
-
   async function queueAdd(record) {
     const db = await openQueueDB();
     return new Promise((resolve, reject) => {
@@ -369,17 +285,14 @@
       tx.onerror = () => reject(tx.error);
     });
   }
-
   async function queueGetAll() {
     const db = await openQueueDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readonly");
-      const req = tx.objectStore(STORE_NAME).getAll();
+      const req = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).getAll();
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
   }
-
   async function queueDelete(id) {
     const db = await openQueueDB();
     return new Promise((resolve, reject) => {
@@ -389,7 +302,6 @@
       tx.onerror = () => reject(tx.error);
     });
   }
-
   function makeId() {
     return (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
   }
@@ -403,9 +315,8 @@
 
   function setConnUI(isOnline) {
     connDot.className = "conn-dot" + (isOnline ? "" : " offline");
-    connLabel.textContent = isOnline ? "Online" : "Offline — leads are saved on this device";
+    connLabel.textContent = isOnline ? "Online" : "Offline — leads saved on device";
   }
-
   async function refreshBanner() {
     const pending = await queueGetAll().catch(() => []);
     if (pending.length > 0) {
@@ -416,41 +327,31 @@
     }
   }
 
-  // XHR instead of fetch — fetch has no way to report upload progress,
-  // and these uploads (audio + photo) are big enough that a rep watching
-  // a spinner with no percentage on a flaky booth wifi connection can't
-  // tell whether it's still working or stuck. onProgress(0-100) is called
-  // as bytes go out; it's optional so the queue sync loop can also use
-  // this to compute progress across multiple leads.
   function sendRecordToBackend(rec, onProgress) {
     return new Promise((resolve, reject) => {
       const fd = new FormData();
       fd.append("client_lead_id", rec.id);
       fd.append("rep_name", rec.repName || "");
-      fd.append("name", rec.name);
-      fd.append("email", rec.email);
-      fd.append("phone", rec.phone);
-      fd.append("company", rec.company);
-      fd.append("industry", rec.industry);
+      fd.append("name", rec.name || "");
+      fd.append("email", rec.email || "");
+      fd.append("phone", rec.phone || "");
+      fd.append("company", rec.company || "");
+      fd.append("industry", rec.industry || "");
       fd.append("products", rec.products || "");
       fd.append("quantity", rec.quantity || "1");
       fd.append("audio", rec.audioBlob, "conversation.webm");
       fd.append("photo", rec.photoBlob, "customer.jpg");
+      // Card photo sent separately so backend can save it to Drive
+      if (rec.cardBlob) fd.append("card_photo", rec.cardBlob, "visiting_card.jpg");
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${API_BASE}/api/submit-lead`);
       xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
+        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
       };
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            resolve({});
-          }
+          try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); }
         } else {
           reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
         }
@@ -461,14 +362,13 @@
   }
 
   const syncProgressTrack = document.getElementById("syncProgressTrack");
-  const syncProgressFill = document.getElementById("syncProgressFill");
+  const syncProgressFill  = document.getElementById("syncProgressFill");
 
   function setSyncProgress(pct, label) {
     syncProgressTrack.classList.add("show");
     syncProgressFill.style.width = `${pct}%`;
     if (label) syncBannerText.textContent = label;
   }
-
   function hideSyncProgress() {
     syncProgressTrack.classList.remove("show");
     syncProgressFill.style.width = "0%";
@@ -487,10 +387,6 @@
         const rec = pending[i];
         try {
           await sendRecordToBackend(rec, (pct) => {
-            // Overall % = leads already fully sent, plus this lead's own
-            // upload progress counted as a fraction of one lead's worth —
-            // so the bar climbs smoothly across the whole queue instead of
-            // resetting to 0 for every individual lead.
             const overall = Math.round(((i + pct / 100) / total) * 100);
             setSyncProgress(overall, `Syncing lead ${i + 1} of ${total}... ${overall}%`);
           });
@@ -498,13 +394,11 @@
           sentCount++;
           setSyncProgress(Math.round(((i + 1) / total) * 100));
         } catch (err) {
-          // Stop on first failure — likely still offline or backend down;
-          // remaining items stay queued and we'll retry on the next pass.
           break;
         }
       }
       if (sentCount > 0 && !silent) {
-        toast(`${sentCount} queued lead${sentCount > 1 ? "s" : ""} synced successfully.`, "success");
+        toast(`${sentCount} queued lead${sentCount > 1 ? "s" : ""} synced.`, "success");
       }
     } finally {
       syncing = false;
@@ -513,21 +407,115 @@
     }
   }
 
-  window.addEventListener("online", () => { setConnUI(true); trySyncQueue({ silent: false }); });
+  window.addEventListener("online",  () => { setConnUI(true);  trySyncQueue({ silent: false }); });
   window.addEventListener("offline", () => setConnUI(false));
   btnSyncNow.addEventListener("click", () => trySyncQueue({ silent: false }));
   setInterval(() => trySyncQueue({ silent: true }), 20000);
-
   setConnUI(navigator.onLine);
   refreshBanner();
   if (navigator.onLine) trySyncQueue({ silent: true });
 
-  // ---------- AUDIO RECORDING ----------
+  // ---------- STEP 1: VISITING CARD ----------
+  let cardBlob = null;
+  let cardExtracted = {};          // extracted fields stored here, sent with lead
+  const btnScanCard   = document.getElementById("btnScanCard");
+  const cardVideo     = document.getElementById("cardVideo");
+  const cardPreview   = document.getElementById("cardPreview");
+  const cardDot       = document.getElementById("cardDot");
+  const cardStatus    = document.getElementById("cardStatus");
+  const extractedFields = document.getElementById("extractedFields");
+  let cardStream = null, cardArmed = false;
+
+  function showExtracted(fields) {
+    const map = { Name: ["efName","efNameVal"], Email: ["efEmail","efEmailVal"],
+                  Phone: ["efPhone","efPhoneVal"], Company: ["efCompany","efCompanyVal"] };
+    const vals = { Name: fields.name, Email: fields.email, Phone: fields.phone, Company: fields.company };
+    let any = false;
+    for (const [label, [rowId, valId]] of Object.entries(map)) {
+      const v = vals[label];
+      const row = document.getElementById(rowId);
+      if (v) {
+        document.getElementById(valId).textContent = v;
+        row.style.display = "flex";
+        any = true;
+      } else {
+        row.style.display = "none";
+      }
+    }
+    if (any) extractedFields.classList.add("show");
+  }
+
+  btnScanCard.addEventListener("click", async () => {
+    if (!cardArmed) {
+      try {
+        cardStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        cardVideo.srcObject = cardStream;
+        cardVideo.style.display = "block";
+        cardPreview.style.display = "none";
+        cardArmed = true;
+        btnScanCard.querySelector(".label").innerHTML = "Snap Now<span class=\"sub\">Point at card and tap</span>";
+      } catch (err) {
+        toast("Camera access denied or unavailable.", "error");
+      }
+      return;
+    }
+
+    // Snap
+    const canvas = document.createElement("canvas");
+    canvas.width  = cardVideo.videoWidth;
+    canvas.height = cardVideo.videoHeight;
+    canvas.getContext("2d").drawImage(cardVideo, 0, 0);
+    canvas.toBlob(async (blob) => {
+      cardBlob = blob;
+      cardPreview.src = URL.createObjectURL(blob);
+      cardPreview.style.display = "block";
+      cardVideo.style.display = "none";
+      cardStream.getTracks().forEach((t) => t.stop());
+      cardArmed = false;
+      btnScanCard.querySelector(".label").innerHTML = "Rescan Card<span class=\"sub\">Tap to replace</span>";
+      cardDot.className = "dot active";
+      cardStatus.textContent = "Card saved.";
+
+      // Try extraction if online — card is always saved regardless
+      if (navigator.onLine) {
+        cardStatus.textContent = "Reading card details...";
+        try {
+          const fd = new FormData();
+          fd.append("card", blob, "card.jpg");
+          const resp = await fetch(`${API_BASE}/api/scan-card`, { method: "POST", body: fd });
+          const data = await resp.json();
+          if (data.status === "success" && data.fields) {
+            cardExtracted = data.fields;
+            const filled = Object.values(data.fields).filter(Boolean).length;
+            cardDot.className = "dot done";
+            cardStatus.textContent = filled
+              ? `Card read — ${filled} detail${filled === 1 ? "" : "s"} extracted. Please verify.`
+              : "Card saved — couldn't read text. Details will be blank.";
+            if (filled) {
+              showExtracted(data.fields);
+              toast("Card scanned — details extracted. Please verify.", "success");
+            }
+          } else {
+            cardDot.className = "dot warn";
+            cardStatus.textContent = "Card saved — couldn't read text automatically.";
+          }
+        } catch (err) {
+          cardDot.className = "dot warn";
+          cardStatus.textContent = "Card saved. Couldn't extract details (no connection) — will upload with lead.";
+        }
+      } else {
+        cardDot.className = "dot done";
+        cardStatus.textContent = "Card photo saved — details will upload when online.";
+      }
+    }, "image/jpeg", 0.92);
+  });
+
+  // ---------- STEP 2: AUDIO ----------
   let mediaRecorder, audioChunks = [], audioBlob = null;
-  const btnRecord = document.getElementById("btnRecord");
-  const btnStop = document.getElementById("btnStop");
-  const audioDot = document.getElementById("audioDot");
-  const audioStatus = document.getElementById("audioStatus");
+  const btnRecord    = document.getElementById("btnRecord");
+  const btnStop      = document.getElementById("btnStop");
+  const audioDot     = document.getElementById("audioDot");
+  const audioStatus  = document.getElementById("audioStatus");
   const audioPreview = document.getElementById("audioPreview");
 
   btnRecord.addEventListener("click", async () => {
@@ -535,7 +523,7 @@
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunks = [];
       mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
       mediaRecorder.onstop = () => {
         audioBlob = new Blob(audioChunks, { type: "audio/webm" });
         audioPreview.src = URL.createObjectURL(audioBlob);
@@ -546,9 +534,9 @@
       };
       mediaRecorder.start();
       audioDot.className = "dot active";
-      audioStatus.textContent = "Recording in progress...";
-      btnRecord.disabled = true;
-      btnStop.disabled = false;
+      audioStatus.textContent = "Recording...";
+      btnRecord.style.display = "none";
+      btnStop.style.display   = "flex";
     } catch (err) {
       toast("Microphone access denied or unavailable.", "error");
     }
@@ -556,237 +544,103 @@
 
   btnStop.addEventListener("click", () => {
     if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-    btnRecord.disabled = false;
-    btnStop.disabled = true;
+    btnRecord.style.display = "flex";
+    btnStop.style.display   = "none";
   });
 
-  // ---------- VISITING CARD SCAN ----------
-  // Two-tap flow, same as customer photo: first tap opens the camera,
-  // second tap snaps. The snap is uploaded to /api/scan-card immediately
-  // and the extracted fields auto-fill the form for the rep to REVIEW —
-  // extraction can misread stylized fonts, so the rep stays the final
-  // check before submit. The card image is also kept and attached to the
-  // lead as its photo if no separate customer photo is captured.
-  let cardBlob = null;
-  const btnScanCard = document.getElementById("btnScanCard");
-  const cardVideo = document.getElementById("cardVideo");
-  const cardPreview = document.getElementById("cardPreview");
-  const cardDot = document.getElementById("cardDot");
-  const cardStatus = document.getElementById("cardStatus");
-  let cardStream = null;
-  let cardArmed = false;
-
-  btnScanCard.addEventListener("click", async () => {
-    if (!cardArmed) {
-      try {
-        cardStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        cardVideo.srcObject = cardStream;
-        cardVideo.style.display = "block";
-        cardPreview.style.display = "none";
-        cardArmed = true;
-        btnScanCard.textContent = "\u{1F4B3} Snap Card Now";
-      } catch (err) {
-        toast("Camera access denied or unavailable.", "error");
-      }
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = cardVideo.videoWidth;
-    canvas.height = cardVideo.videoHeight;
-    canvas.getContext("2d").drawImage(cardVideo, 0, 0);
-    canvas.toBlob(async (blob) => {
-      cardBlob = blob;
-      cardPreview.src = URL.createObjectURL(blob);
-      cardPreview.style.display = "block";
-      cardVideo.style.display = "none";
-      cardStream.getTracks().forEach((t) => t.stop());
-      cardArmed = false;
-      btnScanCard.textContent = "\u{1F4B3} Scan Visiting Card";
-
-      // Upload for extraction
-      cardDot.className = "dot";
-      cardStatus.textContent = "Reading card...";
-      try {
-        const fd = new FormData();
-        fd.append("card", blob, "card.jpg");
-        const resp = await fetch(`${API_BASE}/api/scan-card`, { method: "POST", body: fd });
-        const data = await resp.json();
-
-        if (data.status === "success" && data.fields) {
-          const f = data.fields;
-          let filled = 0;
-          // Fill each field with the extracted value. Existing typed-in
-          // values are NOT overwritten — the rep's manual input wins.
-          [["name", f.name], ["email", f.email], ["phone", f.phone], ["company", f.company]].forEach(([id, value]) => {
-            const el = document.getElementById(id);
-            if (value && !el.value.trim()) {
-              el.value = value;
-              filled++;
-            }
-          });
-          if (filled > 0) {
-            cardDot.className = "dot done";
-            cardStatus.textContent = `Card read — ${filled} field${filled === 1 ? "" : "s"} filled. Please verify before submitting.`;
-            toast("Card scanned — please verify the filled details.", "success");
-          } else {
-            cardDot.className = "dot";
-            cardStatus.textContent = "Card read, but no new fields to fill.";
-          }
-        } else {
-          cardDot.className = "dot";
-          cardStatus.textContent = "Couldn't read the card — please fill fields manually.";
-          toast("Couldn't read the card. Fill the fields manually.", "error");
-        }
-      } catch (err) {
-        // Offline or backend unreachable — the card photo is still kept;
-        // the rep just fills the form manually like before.
-        cardDot.className = "dot";
-        cardStatus.textContent = "No connection — fill fields manually. Card photo kept.";
-        toast("Couldn't reach the server to read the card. Fill fields manually.", "error");
-      }
-    }, "image/jpeg", 0.9);
-  });
-
-  // ---------- PHOTO CAPTURE ----------
+  // ---------- STEP 3: PHOTO ----------
   let photoBlob = null;
-  const btnPhoto = document.getElementById("btnPhoto");
-  const video = document.getElementById("video");
-  const photoPreview = document.getElementById("photoPreview");
-  const photoDot = document.getElementById("photoDot");
-  const photoStatus = document.getElementById("photoStatus");
-  let cameraStream = null;
-  let cameraArmed = false;
+  const btnPhoto      = document.getElementById("btnPhoto");
+  const photoVideo    = document.getElementById("photoVideo");
+  const photoPreview  = document.getElementById("photoPreview");
+  const photoDot      = document.getElementById("photoDot");
+  const photoStatus   = document.getElementById("photoStatus");
+  let photoStream = null, photoArmed = false;
 
   btnPhoto.addEventListener("click", async () => {
-    if (!cameraArmed) {
+    if (!photoArmed) {
       try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        video.srcObject = cameraStream;
-        video.style.display = "block";
+        photoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        photoVideo.srcObject = photoStream;
+        photoVideo.style.display = "block";
         photoPreview.style.display = "none";
-        cameraArmed = true;
-        btnPhoto.textContent = "\u{1F4F7} Snap Now";
+        photoArmed = true;
+        btnPhoto.querySelector(".label").innerHTML = "Snap Photo<span class=\"sub\">Point at customer and tap</span>";
       } catch (err) {
         toast("Camera access denied or unavailable.", "error");
       }
       return;
     }
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.width  = photoVideo.videoWidth;
+    canvas.height = photoVideo.videoHeight;
+    canvas.getContext("2d").drawImage(photoVideo, 0, 0);
     canvas.toBlob((blob) => {
       photoBlob = blob;
       photoPreview.src = URL.createObjectURL(blob);
       photoPreview.style.display = "block";
-      video.style.display = "none";
+      photoVideo.style.display   = "none";
       photoDot.className = "dot done";
       photoStatus.textContent = "Photo captured";
-      cameraStream.getTracks().forEach((t) => t.stop());
-      cameraArmed = false;
-      btnPhoto.textContent = "\u{1F4F7} Capture Photo";
+      photoStream.getTracks().forEach((t) => t.stop());
+      photoArmed = false;
+      btnPhoto.querySelector(".label").innerHTML = "Retake Photo<span class=\"sub\">Tap to replace</span>";
     }, "image/jpeg", 0.9);
   });
 
-  // ---------- RESET (in-place, no navigation) ----------
-  // This replaces window.location.reload(). A full reload is a network
-  // navigation — with no service worker caching this page, reloading while
-  // offline fails and the browser shows its native offline page (the dino
-  // game) instead of the app, blocking any further submissions until back
-  // online. Resetting state in JS works identically online or offline.
-  function resetForm() {
-    form.reset();
-
-    audioBlob = null;
-    audioPreview.style.display = "none";
-    audioPreview.removeAttribute("src");
-    audioDot.className = "dot";
-    audioStatus.textContent = "No recording yet";
-    btnRecord.disabled = false;
-    btnStop.disabled = true;
-
-    photoBlob = null;
-    photoPreview.style.display = "none";
-    photoPreview.removeAttribute("src");
-    video.style.display = "none";
-    cameraArmed = false;
-    btnPhoto.textContent = "\u{1F4F7} Capture Photo";
-    photoDot.className = "dot";
-    photoStatus.textContent = "No photo yet";
-
-    cardBlob = null;
-    cardPreview.style.display = "none";
-    cardPreview.removeAttribute("src");
-    cardVideo.style.display = "none";
-    if (cardStream) { cardStream.getTracks().forEach((t) => t.stop()); cardStream = null; }
-    cardArmed = false;
-    btnScanCard.textContent = "\u{1F4B3} Scan Visiting Card";
-    cardDot.className = "dot";
-    cardStatus.textContent = "No card scanned";
-
-    btnSubmit.disabled = false;
-    submitStatusRow.style.display = "none";
-    submitDot.className = "dot";
-    submitStatus.textContent = "";
-    hideSubmitProgress();
-  }
-
   // ---------- SUBMIT ----------
-  const btnSubmit = document.getElementById("btnSubmit");
-  const submitStatusRow = document.getElementById("submitStatusRow");
-  const submitDot = document.getElementById("submitDot");
-  const submitStatus = document.getElementById("submitStatus");
+  const btnSubmit         = document.getElementById("btnSubmit");
+  const submitStatusRow   = document.getElementById("submitStatusRow");
+  const submitDot         = document.getElementById("submitDot");
+  const submitStatus      = document.getElementById("submitStatus");
   const submitProgressTrack = document.getElementById("submitProgressTrack");
-  const submitProgressFill = document.getElementById("submitProgressFill");
-  const form = document.getElementById("leadForm");
+  const submitProgressFill  = document.getElementById("submitProgressFill");
 
   function setSubmitProgress(pct) {
     submitProgressTrack.classList.add("show");
     submitProgressFill.style.width = `${pct}%`;
-    submitStatus.textContent = `Uploading lead data... ${pct}%`;
+    submitStatus.textContent = `Uploading... ${pct}%`;
   }
-
   function hideSubmitProgress() {
     submitProgressTrack.classList.remove("show");
     submitProgressFill.style.width = "0%";
   }
 
   btnSubmit.addEventListener("click", async () => {
-    if (!form.reportValidity()) return;
-    if (!audioBlob) { toast("Please record the conversation before submitting.", "error"); return; }
-    // Either a customer photo OR a scanned visiting card satisfies the
-    // photo requirement — the card photo is used as the lead's photo when
-    // no separate customer photo was taken.
-    const effectivePhotoBlob = photoBlob || cardBlob;
-    if (!effectivePhotoBlob) { toast("Please capture a customer photo or scan a visiting card before submitting.", "error"); return; }
+    // Only hard requirement: audio recording
+    if (!audioBlob) {
+      toast("Please record the conversation first.", "error");
+      return;
+    }
 
     btnSubmit.disabled = true;
     submitStatusRow.style.display = "flex";
     submitDot.className = "dot active";
-    submitStatus.textContent = "Uploading lead data...";
+    submitStatus.textContent = "Saving lead...";
 
     const record = {
       id: makeId(),
       repName: repName || "",
-      name: document.getElementById("name").value,
-      email: document.getElementById("email").value,
-      phone: document.getElementById("phone").value,
-      company: document.getElementById("company").value,
-      industry: document.getElementById("industry").value,
-      products: document.getElementById("products").value,
-      quantity: document.getElementById("quantity").value || "1",
+      // Contact details from card extraction (empty strings if no card scanned
+      // or extraction failed — the audio transcript still captures intent)
+      name:    cardExtracted.name    || "",
+      email:   cardExtracted.email   || "",
+      phone:   cardExtracted.phone   || "",
+      company: cardExtracted.company || "",
+      industry: "",
+      products: "",
+      quantity: "1",
       audioBlob,
-      photoBlob: effectivePhotoBlob,
+      photoBlob: photoBlob || cardBlob || new Blob([], { type: "image/jpeg" }),
+      cardBlob: cardBlob || null,
     };
 
-    // If we're already known to be offline, skip straight to queuing —
-    // no point waiting on a request that can't possibly succeed.
     if (!navigator.onLine) {
       await queueAdd(record);
       await refreshBanner();
       submitDot.className = "dot done";
-      submitStatus.textContent = "Saved offline — will send when back online";
-      toast("No connection — lead saved on this device and will sync automatically.", "success");
+      submitStatus.textContent = "Saved offline — will sync when online";
+      toast("No connection — lead saved and will sync automatically.", "success");
       setTimeout(resetForm, 2200);
       return;
     }
@@ -797,20 +651,52 @@
       setSubmitProgress(100);
       submitDot.className = "dot done";
       submitStatus.textContent = "Submitted successfully";
-      toast("Lead captured! Follow-up is on its way.", "success");
+      toast("Lead captured!", "success");
       setTimeout(resetForm, 2200);
     } catch (err) {
-      // Request failed (network drop, backend unreachable, timeout, etc.) —
-      // don't lose the lead, queue it locally instead of just erroring out.
       hideSubmitProgress();
       await queueAdd(record);
       await refreshBanner();
       submitDot.className = "dot done";
-      submitStatus.textContent = "Saved offline — will send when back online";
-      toast("Couldn't reach the server — lead saved on this device and will sync automatically.", "success");
+      submitStatus.textContent = "Saved offline — will sync when online";
+      toast("Couldn't reach server — lead saved and will sync automatically.", "success");
       setTimeout(resetForm, 2200);
     }
   });
+
+  // ---------- RESET ----------
+  function resetForm() {
+    // Card
+    cardBlob = null; cardExtracted = {};
+    cardPreview.style.display = "none"; cardPreview.removeAttribute("src");
+    cardVideo.style.display = "none";
+    if (cardStream) { cardStream.getTracks().forEach((t) => t.stop()); cardStream = null; }
+    cardArmed = false;
+    btnScanCard.querySelector(".label").innerHTML = "Scan Card<span class=\"sub\">Auto-extracts contact details when online</span>";
+    cardDot.className = "dot"; cardStatus.textContent = "No card scanned";
+    extractedFields.classList.remove("show");
+    ["efName","efEmail","efPhone","efCompany"].forEach((id) => document.getElementById(id).style.display = "none");
+
+    // Audio
+    audioBlob = null;
+    audioPreview.style.display = "none"; audioPreview.removeAttribute("src");
+    audioDot.className = "dot"; audioStatus.textContent = "No recording yet";
+    btnRecord.style.display = "flex"; btnStop.style.display = "none";
+
+    // Photo
+    photoBlob = null;
+    photoPreview.style.display = "none"; photoPreview.removeAttribute("src");
+    photoVideo.style.display = "none";
+    if (photoStream) { photoStream.getTracks().forEach((t) => t.stop()); photoStream = null; }
+    photoArmed = false;
+    btnPhoto.querySelector(".label").innerHTML = "Capture Photo<span class=\"sub\">Tap to open camera</span>";
+    photoDot.className = "dot"; photoStatus.textContent = "No photo yet";
+
+    // Submit
+    btnSubmit.disabled = false;
+    submitStatusRow.style.display = "none";
+    hideSubmitProgress();
+  }
 </script>
 </body>
 </html>
