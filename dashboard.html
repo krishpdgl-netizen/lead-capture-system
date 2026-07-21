@@ -1,922 +1,1175 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<link rel="manifest" href="./manifest.json" />
-<meta name="theme-color" content="#ffffff" />
-<link rel="apple-touch-icon" href="./icon-192.png" />
-<title>Lead Capture</title>
-<style>
-/* ── ORIGINAL TOKENS — untouched ─────────────────────── */
-:root {
-  --navy:   #1B2A4A;
-  --accent: #3E7BFA;
-  --ice:    #EAF0FB;
-  --gray:   #5B6472;
-  --green:  #2FA36B;
-  --red:    #D65A56;
-}
+/**
+ * Google Apps Script Web App + Follow-Up Automation
+ * Deploy from: Extensions > Apps Script (inside your Leads Google Sheet)
+ * Deploy as: Web app, Execute as: Me, Who has access: Anyone
+ *
+ * Handles:
+ *  1. doPost — saves uploaded audio/photo files to Drive, appends a lead
+ *     row to the "Leads" tab (including rep_name and matched_products from
+ *     the catalog)
+ *  2. doGet  — returns the "Catalog" tab as JSON, so the FastAPI backend
+ *     can fetch product data to match against each conversation
+ *  3. generateCatalogImageLinks — one-time (or re-run-as-needed) helper
+ *     that scans a Drive folder of product photos, matches each filename
+ *     to a product_id, and writes the share link into the Catalog tab —
+ *     so you never have to manually right-click "Get link" 100+ times.
+ *  4. processNewLeads — the follow-up automation (formerly an n8n
+ *     workflow): matches each un-followed-up lead against the Catalog by
+ *     keyword score, builds a branded HTML quotation, emails it via
+ *     Gmail, and marks the lead's status. Runs on a time trigger — see
+ *     installTrigger() below.
+ */
 
-/* ── RESET ───────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+const SPREADSHEET_ID = "1XaFh2r5Qnngc45Z7p4g0QIQUU7n-mKs3Q3F07TVcSaY";
+const SHEET_TAB_NAME = "Leads";
+const CATALOG_TAB_NAME = "Catalog";
 
-body {
-  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  background: #f5f7fa;
-  color: var(--navy);
-  -webkit-font-smoothing: antialiased;
-  padding-bottom: env(safe-area-inset-bottom, 24px);
-}
+// Paste the ID of the Drive folder containing your product photos here.
+// Get it from the folder's URL: https://drive.google.com/drive/folders/THIS_PART
+const CATALOG_IMAGES_FOLDER_ID = "1Kr5JNqKFQfY3KV8IltChXYE4VWwbk-hE";
 
-.wrap {
-  max-width: 520px;
-  margin: 0 auto;
-  padding: 0 16px 72px;
-}
+// ----------------------------------------------------------------------------
+// doPost — lead submissions
+// ----------------------------------------------------------------------------
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
 
-/* ── HEADER ──────────────────────────────────────────── */
-.app-header {
-  padding: 20px 0 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid #E4ECFA;
-  margin-bottom: 20px;
-}
-.app-header-brand {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--navy);
-  letter-spacing: -.3px;
-}
-.app-header-brand span {
-  color: var(--accent);
-}
-.app-header-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
-}
-.conn-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--green);
-  letter-spacing: .1px;
-}
-.conn-badge.offline { color: var(--red); }
-.conn-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-}
-.rep-line {
-  font-size: 11px;
-  color: var(--gray);
-}
-.rep-line strong { color: var(--navy); font-weight: 600; }
-.rep-line a {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-  margin-left: 6px;
-}
+    const folder = DriveApp.getFolderById(data.gdrive_folder_id);
 
-/* ── SYNC BANNER ─────────────────────────────────────── */
-.sync-banner {
-  display: none;
-  background: #FFF6E5;
-  border: 1px solid #F3D99A;
-  border-radius: 12px;
-  padding: 11px 14px;
-  margin-bottom: 16px;
-  font-size: 12.5px;
-  color: #8A6100;
-}
-.sync-banner.show { display: block; }
-.sync-banner-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.sync-now-btn {
-  font-size: 11.5px;
-  font-weight: 700;
-  padding: 5px 13px;
-  border-radius: 20px;
-  border: none;
-  background: #8A6100;
-  color: #fff;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.progress-track {
-  height: 4px;
-  background: #F3E3B8;
-  border-radius: 2px;
-  margin-top: 10px;
-  display: none;
-  overflow: hidden;
-}
-.progress-track.show { display: block; }
-.progress-fill {
-  height: 100%;
-  width: 0%;
-  background: #8A6100;
-  border-radius: 2px;
-  transition: width .15s;
-}
+    const audioUrl = saveFileToDrive(
+      folder,
+      data.audio_base64,
+      data.audio_filename,
+      data.audio_mime_type
+    );
+    const photoUrl = saveFileToDrive(
+      folder,
+      data.photo_base64,
+      data.photo_filename,
+      data.photo_mime_type
+    );
+    // Card photo is optional — only present when a rep scanned a visiting card
+    const cardPhotoUrl = data.card_photo_base64
+      ? saveFileToDrive(folder, data.card_photo_base64, data.card_photo_filename, data.card_photo_mime_type)
+      : "";
 
-/* ── STEPPER ─────────────────────────────────────────── */
-.stepper {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 24px;
-  padding: 0 4px;
-}
-.step {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  position: relative;
-}
-.step::after {
-  content: "";
-  position: absolute;
-  top: 13px;
-  left: calc(50% + 16px);
-  right: calc(-50% + 16px);
-  height: 1px;
-  background: #DCE6F7;
-  transition: background .3s;
-}
-.step:last-child::after { display: none; }
-.step.done::after { background: var(--green); }
-.step-node {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  border: 1.5px solid #DCE6F7;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: #B0BDD0;
-  transition: all .25s;
-  position: relative;
-  z-index: 1;
-}
-.step.active .step-node {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--ice);
-}
-.step.done .step-node {
-  border-color: var(--green);
-  background: var(--green);
-  color: #fff;
-}
-.step-name {
-  font-size: 10px;
-  font-weight: 600;
-  color: #B0BDD0;
-  letter-spacing: .3px;
-  text-transform: uppercase;
-}
-.step.active .step-name { color: var(--accent); }
-.step.done .step-name { color: var(--green); }
+    appendRowToSheet([
+      data.lead_id,
+      data.timestamp,
+      data.name,
+      data.email,
+      data.phone ? "'" + data.phone : "",
+      data.company,
+      data.designation || "",
+      data.industry,
+      data.products,
+      audioUrl,
+      photoUrl,
+      data.transcript || "",
+      data.matched_products_json || "[]",
+      "New",
+      data.rep_name || "",
+      data.quantity || "1",
+      cardPhotoUrl,
+    ]);
 
-/* ── CARDS ───────────────────────────────────────────── */
-.card {
-  background: #fff;
-  border-radius: 16px;
-  padding: 20px;
-  margin-bottom: 12px;
-  box-shadow: 0 1px 4px rgba(27,42,74,.06), 0 4px 16px rgba(27,42,74,.07);
-  border: 1px solid transparent;
-  transition: border-color .2s;
-}
-.card.is-active {
-  border-color: var(--accent);
-  box-shadow: 0 1px 4px rgba(27,42,74,.06), 0 4px 20px rgba(62,123,250,.12);
-}
-.card.is-done {
-  border-color: #C8EDD9;
-}
+    // Schedule follow-up email processing to run ~1 minute from now,
+    // outside this web app request entirely. This avoids the 6-minute
+    // Apps Script web app timeout — doPost returns immediately to the
+    // phone, and the matching + email send happens in a separate execution
+    // that has its own fresh 6-minute budget.
+    // Using a one-off time trigger rather than calling processNewLeads()
+    // inline means even a slow Gemini call or large Drive upload can't
+    // cause the rep's phone to see a timeout error.
+    try {
+      ScriptApp.newTrigger('processNewLeads')
+        .timeBased()
+        .after(60 * 1000) // 1 minute from now
+        .create();
+    } catch (trigErr) {
+      // Trigger creation failing (e.g. trigger quota) is non-fatal —
+      // the 10-minute recurring trigger will pick this lead up anyway.
+      console.error("Deferred trigger creation failed: " + trigErr.message);
+    }
 
-.card-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-.card-icon {
-  width: 40px; height: 40px;
-  border-radius: 12px;
-  background: var(--ice);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.card-icon svg { display: block; }
-.a-icon svg { display: block; width: 22px; height: 22px; color: var(--navy); }
-.card-icon.green-bg { background: #E6F7EF; }
-.card-icon.red-bg   { background: #FAEAEA; }
-.card-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--navy);
-  letter-spacing: -.2px;
-}
-.card-sub {
-  font-size: 12px;
-  color: var(--gray);
-  margin-top: 1px;
-}
-
-/* ── CAMERA / PREVIEW ────────────────────────────────── */
-video, img.preview {
-  width: 100%;
-  border-radius: 12px;
-  display: none;
-  margin-bottom: 12px;
-  background: #000;
-  aspect-ratio: 4/3;
-  object-fit: cover;
-}
-
-/* ── ACTION BUTTONS ──────────────────────────────────── */
-/* ── BUTTONS — exact original design ── */
-  button {
-    border: none;
-    border-radius: 24px;
-    padding: 13px 16px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: #fff;
-    width: 100%;
-    margin-top: 10px;
-    -webkit-tap-highlight-color: transparent;
+    return jsonResponse({
+      status: "success",
+      audio_url: audioUrl,
+      photo_url: photoUrl,
+      card_photo_url: cardPhotoUrl,
+    });
+  } catch (err) {
+    console.error("doPost failed: " + err.message + "\n" + (err.stack || ""));
+    return jsonResponse({ status: "error", message: err.message });
   }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
-  button:first-of-type { margin-top: 0; }
-  .btn-scan   { background: var(--navy); }
-  .btn-record { background: var(--accent); }
-  .btn-stop   { background: var(--red); display: none; }
-  .btn-photo  { background: var(--navy); }
-  .btn-submit { background: var(--green); padding: 15px; font-size: 15px; margin-top: 0; }
-  .btn-done   { background: var(--green); }
-
-/* ── STATUS ROW ──────────────────────────────────────── */
-.status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 13px;
-  font-size: 12.5px;
-  color: var(--gray);
-  min-height: 18px;
-}
-.dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: #C7D3EA;
-  flex-shrink: 0;
-  transition: background .2s;
-}
-.dot.active { background: var(--red); animation: pulse 1s infinite; }
-.dot.done   { background: var(--green); }
-.dot.warn   { background: #F59E0B; }
-@keyframes pulse { 50% { opacity: .3; } }
-
-/* ── EXTRACTED FIELDS ────────────────────────────────── */
-.extracted {
-  display: none;
-  margin-top: 14px;
-  background: #F4FBF7;
-  border: 1px solid #C8EDD9;
-  border-radius: 12px;
-  padding: 14px;
-}
-.extracted.show { display: block; }
-.extracted-head {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--green);
-  letter-spacing: .4px;
-  text-transform: uppercase;
-  margin-bottom: 10px;
-}
-.ef-row {
-  display: flex;
-  gap: 10px;
-  font-size: 13px;
-  margin-bottom: 6px;
-}
-.ef-row:last-child { margin-bottom: 0; }
-.ef-key {
-  min-width: 58px;
-  font-weight: 600;
-  color: var(--gray);
-  flex-shrink: 0;
-  font-size: 12px;
-}
-.ef-val { color: var(--navy); word-break: break-all; }
-
-/* ── AUDIO PREVIEW ───────────────────────────────────── */
-#audioPreview {
-  width: 100%;
-  margin-top: 13px;
-  display: none;
-  height: 38px;
-  border-radius: 8px;
 }
 
-/* ── SUBMIT ──────────────────────────────────────────── */
-.submit-wrap {
-  margin-top: 4px;
-}
-.submit-btn {
-  width: 100%;
-  padding: 17px;
-  border: none;
-  border-radius: 14px;
-  background: var(--navy);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -.1px;
-  cursor: pointer;
-  transition: all .15s;
-  -webkit-tap-highlight-color: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-.submit-btn:active { transform: scale(.985); }
-.submit-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+// ----------------------------------------------------------------------------
+// doGet — catalog fetch (?action=catalog), used by the FastAPI backend
+// ----------------------------------------------------------------------------
+function doGet(e) {
+  const action = e.parameter.action;
 
-.submit-status {
-  display: none;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 14px;
-}
-.submit-status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--gray);
-}
-.submit-prog-track {
-  height: 4px;
-  background: #E4ECFA;
-  border-radius: 2px;
-  overflow: hidden;
-  display: none;
-}
-.submit-prog-track.show { display: block; }
-.submit-prog-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width .15s;
+  if (action === "catalog") {
+    try {
+      const products = readCatalog();
+      return jsonResponse({ status: "success", products: products });
+    } catch (err) {
+      console.error("doGet catalog failed: " + err.message);
+      return jsonResponse({ status: "error", message: err.message, products: [] });
+    }
+  }
+
+  return jsonResponse({ status: "error", message: "Unknown or missing action." });
 }
 
-/* ── TOAST ───────────────────────────────────────────── */
-#toast {
-  position: fixed;
-  left: 50%;
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%) translateY(10px);
-  background: var(--navy);
-  color: #fff;
-  padding: 12px 22px;
-  border-radius: 12px;
-  font-size: 13.5px;
-  font-weight: 500;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .2s, transform .2s;
-  z-index: 9999;
-  max-width: 88vw;
-  text-align: center;
-  white-space: nowrap;
-  box-shadow: 0 4px 20px rgba(27,42,74,.25);
+function readCatalog() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(CATALOG_TAB_NAME);
+  if (!sheet) {
+    throw new Error('Tab "' + CATALOG_TAB_NAME + '" not found.');
+  }
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return []; // header row only, no products yet
+
+  const headers = values[0].map(function (h) { return String(h).trim(); });
+  const rows = values.slice(1);
+
+  return rows
+    .filter(function (row) { return row[0] !== "" && row[0] !== null; }) // skip blank rows
+    .map(function (row) {
+      const product = {};
+      headers.forEach(function (header, i) {
+        product[header] = row[i];
+      });
+      return product;
+    });
 }
-#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-#toast.success { background: var(--green); }
-#toast.error   { background: var(--red); }
+
+// ----------------------------------------------------------------------------
+// One-time (or re-run-as-needed) helper: bulk-generate catalog image links
+// ----------------------------------------------------------------------------
+// HOW TO USE:
+//   1. Fill in the Catalog tab manually: product_id, name, category, price,
+//      description, keywords — leave image_url blank.
+//   2. Upload product photos to the Drive folder whose ID you pasted into
+//      CATALOG_IMAGES_FOLDER_ID above. Name each file EXACTLY as its
+//      product_id, e.g. "P014.jpg" for product_id "P014" (any common image
+//      extension works: .jpg, .jpeg, .png, .webp).
+//   3. In the Apps Script editor, select "generateCatalogImageLinks" in the
+//      function dropdown at the top and click Run.
+//   4. Check View > Logs afterward — it reports how many links were set
+//      and lists any product_ids it couldn't find a matching photo for.
+//   5. Re-run any time you add new photos; it skips products that already
+//      have an image_url filled in, so it's safe to run repeatedly.
+function generateCatalogImageLinks() {
+  if (!CATALOG_IMAGES_FOLDER_ID || CATALOG_IMAGES_FOLDER_ID === "PUT_YOUR_CATALOG_IMAGES_FOLDER_ID_HERE") {
+    throw new Error("CATALOG_IMAGES_FOLDER_ID is not set — paste in the Drive folder ID first.");
+  }
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(CATALOG_TAB_NAME);
+  if (!sheet) {
+    throw new Error('Tab "' + CATALOG_TAB_NAME + '" not found.');
+  }
+
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0].map(function (h) { return String(h).trim(); });
+  const productIdCol = headers.indexOf("product_id");
+  const imageUrlCol = headers.indexOf("image_url");
+
+  if (productIdCol === -1 || imageUrlCol === -1) {
+    throw new Error('Catalog tab must have "product_id" and "image_url" columns.');
+  }
+
+  const folder = DriveApp.getFolderById(CATALOG_IMAGES_FOLDER_ID);
+  const files = folder.getFiles();
+  const filesByStem = {};
+  while (files.hasNext()) {
+    const file = files.next();
+    const stem = file.getName().replace(/\.[^.]+$/, ""); // strip extension
+    filesByStem[stem] = file;
+  }
+
+  let updated = 0;
+  const notFound = [];
+
+  for (let r = 1; r < values.length; r++) {
+    const productId = values[r][productIdCol];
+    const existingUrl = values[r][imageUrlCol];
+    if (!productId) continue;
+    if (existingUrl) continue; // already has a link, skip — safe to re-run
+
+    const file = filesByStem[String(productId).trim()];
+    if (!file) {
+      notFound.push(productId);
+      continue;
+    }
+
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const url = "https://drive.google.com/uc?export=view&id=" + file.getId();
+    sheet.getRange(r + 1, imageUrlCol + 1).setValue(url);
+    updated++;
+  }
+
+  SpreadsheetApp.flush();
+  console.log("Image links set: " + updated);
+  if (notFound.length) {
+    console.log("No matching photo found for product_id(s): " + notFound.join(", "));
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Shared helpers
+// ----------------------------------------------------------------------------
+function saveFileToDrive(folder, base64Data, filename, mimeType) {
+  const bytes = Utilities.base64Decode(base64Data);
+  const blob = Utilities.newBlob(bytes, mimeType, filename);
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return "https://drive.google.com/file/d/" + file.getId() + "/view";
+}
+
+function getSheet() {
+  if (!SPREADSHEET_ID || SPREADSHEET_ID === "PUT_YOUR_SPREADSHEET_ID_HERE") {
+    throw new Error(
+      "SPREADSHEET_ID is not set in the script — paste in the ID from your Sheet's URL."
+    );
+  }
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_TAB_NAME);
+
+  if (!sheet) {
+    const existingTabs = ss.getSheets().map(function (s) {
+      return s.getName();
+    });
+    throw new Error(
+      'Tab "' + SHEET_TAB_NAME + '" not found. Tabs that DO exist: ' +
+      existingTabs.join(", ")
+    );
+  }
+
+  return sheet;
+}
+
+function appendRowToSheet(row) {
+  const sheet = getSheet();
+  sheet.appendRow(row);
+  SpreadsheetApp.flush();
+}
+
+function jsonResponse(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
+    ContentService.MimeType.JSON
+  );
+}
+
+/**
+ * Optional: run manually to sanity-check SPREADSHEET_ID and both tab names
+ * before wiring up the real backend. Check View > Logs afterward.
+ */
+function testSetup() {
+  const leadsSheet = getSheet();
+  const catalogSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(CATALOG_TAB_NAME);
+  console.log("OK — Leads tab found: " + leadsSheet.getName());
+  console.log(catalogSheet ? "OK — Catalog tab found: " + catalogSheet.getName() : "WARNING — Catalog tab not found yet.");
+}
+
+// ==============================================================================
+// FOLLOW-UP AUTOMATION  (replaces the n8n workflow: Match Products ->
+// Build Quotation Email -> Has Quotation? -> Send Follow-Up Email -> Mark
+// Lead as Sent). Reuses SPREADSHEET_ID / getSheet() / readCatalog() above —
+// nothing new to configure except FOLLOWUP_CONFIG right below.
+// ==============================================================================
+
+const FOLLOWUP_CONFIG = {
+  // Follow-up emails are checked/sent on a recurring interval. Change
+  // and re-run installTrigger() to take effect. Apps Script only accepts
+  // 1, 5, 10, 15, or 30 as valid minute intervals.
+  TRIGGER_INTERVAL_MINUTES: 10,
+
+  // GST rate used only for display in the {{GST}} line — set to null to
+  // just show "Applicable extra" instead of a computed amount.
+  GST_RATE: null, // e.g. 0.18
+
+  // doPost (above) writes "New" as the initial status on every lead row.
+  // processNewLeads() treats a row as not-yet-followed-up if its status
+  // is exactly this value, OR blank.
+  UNPROCESSED_STATUS: "New",
+};
+
+const REP_ROUTING = {
+  Shuttle: {
+    name: 'Bhavin Shah', email: 'bhavin@panachedigilife.com',
+    phone: '+91 98202 73262', whatsapp: '919820273262',
+    title: 'Business Development — Shuttle', initials: 'BS'
+  },
+  Microtouch: {
+    name: 'Sri Ram Venkat', email: 'sriramvenkat.h@panachedigilife.com',
+    phone: '+91 98452 89230', whatsapp: '919845289230',
+    title: 'Business Development — Microtouch', initials: 'SV'
+  },
+  Uniview: {
+    name: 'TBD', email: '', phone: '', whatsapp: '',
+    title: 'Business Development — Uniview', initials: '&mdash;'
+  }
+};
+
+const BRAND_BLURBS = {
+  Shuttle: "Shuttle Inc. is a Taiwan-based global pioneer in compact form-factor computing — trusted for space-efficient, fanless, and industrial-grade mini PCs used in digital signage, edge computing, and embedded systems worldwide.",
+  Microtouch: "MicroTouch is a globally recognized leader in interactive touchscreen technology, delivering rugged, high-performance touch displays and kiosk solutions built for retail, hospitality, and public-facing digital experiences.",
+  Uniview: "Uniview is a leading global provider of intelligent video surveillance solutions — CCTV cameras, NVRs, and AI-powered security systems deployed across industries worldwide. Panache Digilife is proud to manufacture Uniview products in India."
+};
+
+/**
+ * Main entry point — call this on a trigger (see installTrigger below), or
+ * run it directly from the editor to test.
+ */
+function processNewLeads() {
+  // Clean up any one-off triggers that fired to call this function —
+  // these are created by doPost's deferred trigger pattern. Without this,
+  // each lead submission would leave a stale trigger in the project.
+  ScriptApp.getProjectTriggers().forEach((t) => {
+    if (t.getHandlerFunction() === 'processNewLeads' &&
+        t.getEventType() === ScriptApp.EventType.CLOCK &&
+        t.getTriggerSource() === ScriptApp.TriggerSource.CLOCK) {
+      // Only delete one-off (after()) triggers, not the recurring everyMinutes one
+      try { ScriptApp.deleteTrigger(t); } catch(e) {}
+    }
+  });
+  const leadsSheet = getSheet();
+  const catalog = readCatalog();
+  const leads = readLeadsWithRowNumbers(leadsSheet);
+
+  const headers = leadsSheet.getRange(1, 1, 1, leadsSheet.getLastColumn())
+    .getValues()[0].map((h) => String(h).trim());
+  const statusColIndex = headers.indexOf('status') + 1; // 1-based sheet column
+  if (statusColIndex === 0) {
+    throw new Error('Leads sheet has no "status" column — cannot track sent/skipped state.');
+  }
+
+  let processed = 0;
+  leads.forEach((lead) => {
+    const currentStatus = (lead.status || '').toString().trim();
+    if (currentStatus !== '' && currentStatus !== FOLLOWUP_CONFIG.UNPROCESSED_STATUS) return;
+
+    try {
+      const matched = matchProducts(lead, catalog);
+      let statusToWrite;
+
+      if (matched.quotation_skipped) {
+        statusToWrite = `Skipped - ${matched.quotation_skip_reason || 'no match'}`;
+      } else {
+        const quotation = buildQuotationEmail(matched);
+        const sent = sendQuotationEmail(lead, quotation);
+        statusToWrite = sent ? 'Email Sent' : 'Skipped - no email address';
+      }
+
+      leadsSheet.getRange(lead._row, statusColIndex).setValue(statusToWrite);
+      processed++;
+    } catch (err) {
+      // Never let one bad row kill the whole batch — log it, mark the row
+      // so it doesn't get retried forever, and move on.
+      console.error(`Row ${lead._row} (lead_id=${lead.lead_id}) failed: ${err}`);
+      leadsSheet.getRange(lead._row, statusColIndex).setValue(`Error - ${String(err).slice(0, 100)}`);
+    }
+  });
+
+  console.log(`processNewLeads: processed ${processed} lead(s).`);
+}
+
+/** Run once to set up the recurring trigger (replaces the manual n8n "Execute workflow" button). */
+function installTrigger() {
+  ScriptApp.getProjectTriggers().forEach((t) => {
+    if (t.getHandlerFunction() === 'processNewLeads') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('processNewLeads')
+    .timeBased()
+    .everyMinutes(FOLLOWUP_CONFIG.TRIGGER_INTERVAL_MINUTES)
+    .create();
+  console.log(`Trigger installed: processNewLeads every ${FOLLOWUP_CONFIG.TRIGGER_INTERVAL_MINUTES} min.`);
+}
+
+/** Reads the Leads sheet into row objects keyed by header name, plus each row's sheet row number (for writing back). */
+function readLeadsWithRowNumbers(sheet) {
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+  const headers = values[0].map((h) => String(h).trim());
+  const rows = [];
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    if (!row[0]) continue; // skip blank lead_id
+    const obj = { _row: r + 1 }; // 1-based sheet row number
+    headers.forEach((h, i) => { if (h) obj[h] = row[i]; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+// ------------------------------------------------------------------
+// STEP 1 — MATCH PRODUCTS  (ported from the n8n "Match Products" code node)
+// ------------------------------------------------------------------
+function matchProducts(lead, catalogRows) {
+  const junkPatterns = [
+    /does not contain/i, /no audible/i, /no clear audio/i, /cannot be identified/i,
+    /can(not|'t) be identified/i, /no customer interests?/i, /background noise/i,
+    /non-verbal vocalizations?/i, /no spoken/i, /unclear audio/i, /audio unclear/i, /inaudible/i, /no reliable summary/i
+  ];
+  const transcriptText = lead.transcript || '';
+  const looksEmpty = junkPatterns.some((re) => re.test(transcriptText));
+  const hasRealContent = (lead.products || '').toString().trim().length > 2
+    || ((lead.transcript || '').toString().trim().length > 20 && !looksEmpty);
+
+  if (looksEmpty || !hasRealContent) {
+    return {
+      ...lead,
+      matched_products: [],
+      quotation_skipped: true,
+      quotation_skip_reason: looksEmpty
+        ? 'Transcript indicates no usable audio/customer info'
+        : 'No product match found'
+    };
+  }
+
+  const leadText = `${lead.products || ''} ${lead.industry || ''} ${lead.transcript || ''}`.toLowerCase();
+
+  const seen = new Set();
+  const uniqueCatalog = catalogRows.filter((p) => {
+    if (seen.has(p.product_id)) return false;
+    seen.add(p.product_id);
+    return true;
+  });
+
+  const stopwords = new Set([
+    'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'are', 'was', 'you', 'your', 'not', 'any',
+    'audio', 'clip', 'does', 'contain', 'audible', 'conversation', 'spoken', 'information', 'consists',
+    'only', 'brief', 'background', 'noise', 'non', 'verbal', 'vocalizations', 'customer', 'interests',
+    'company', 'details', 'specific', 'needs', 'can', 'identified', 'discussed', 'mentioned', 'asked',
+    'about', 'into', 'also', 'device', 'model', 'features', 'looking', 'want', 'wants', 'need', 'needs',
+    'like', 'good', 'please', 'regarding', 'interested', 'would', 'could', 'should', 'some',
+    'they', 'them', 'their', 'were', 'has', 'had', 'will', 'use', 'used', 'using', 'models', 'technical',
+    'specifications', 'hardware', 'configurations', 'available', 'understand', 'what',
+    'computer', 'system', 'systems', 'windows', 'linux', 'card', 'performance', 'fast', 'multitasking',
+    'operating', 'storage', 'memory', 'processor', 'high', 'lot', 'ram', 'ssd', 'hdd', 'ddr', 'ddr4', 'ddr5',
+    'usb', 'hdmi', 'port', 'ports', 'cache', 'core', 'cores', 'ghz', 'mhz', 'gigabit', 'wifi', 'bluetooth',
+    'network', 'power', 'adapter', 'watt', 'watts', 'type', 'support', 'supports', 'inch', 'resolution',
+    'display', 'screen', 'monitor', 'touch', 'touchscreen', 'panel', 'led', 'lcd', 'fhd', 'uhd'
+  ]);
+
+  const words = [...new Set(
+    leadText.split(/\W+/).filter((w) => w.length > 2 && !stopwords.has(w))
+  )];
+
+  function parsePrice(raw) {
+    if (raw === null || raw === undefined || raw === '') return 0;
+    if (typeof raw === 'number') return raw;
+    const cleaned = String(raw).replace(/[₹,\s]/g, '');
+    const n = Number(cleaned);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function wordMatches(text, word) {
+    const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    return re.test(text);
+  }
+
+  const INTENT_RULES = [
+    [/\b(bill(ing)? making|billing machine|cash register|checkout counter|grocery (shop|store)|retail (shop|store) billing)\b/i, ['pos', 'billing']],
+    [/\b(self[\s-]?checkout|self[\s-]?service (counter|machine|kiosk))\b/i, ['kiosk', 'self-service']],
+    [/\b(signboard|display board|advertising screen|menu board|digital signage)\b/i, ['signage']],
+    [/\b(cctv|security camera|surveillance camera|ip camera)\b/i, ['camera', 'surveillance']],
+    [/\b(nvr|video recorder|surveillance recorder|cctv recorder|recording channels?)\b/i, ['nvr', 'recorder', 'video']],
+    [/\bgaming\b/i, ['gaming']],
+    [/\bhospital|clinic|patient|icu|bedside\b/i, ['healthcare']],
+    [/\bfactory|manufacturing floor|assembly line|hmi\b/i, ['industrial', 'automation']],
+    [/\b(mini\s?pc|embedded (computer|pc)|compute box|nano\s?pc|fanless (pc|computer)|small computer)\b/i, ['mini', 'fanless', 'nano']],
+  ];
+
+  const COMPONENT_CATEGORY_TERMS = ['nano', 'accessor'];
+  const WANTS_COMPONENT = /\b(mini\s?pc|embedded (computer|pc)|compute box|nano\s?pc|fanless (pc|computer)|small computer to run|backend computer)\b/i;
+
+  function categoryPhraseBonus(category, leadTextLower) {
+    const catWords = category.toLowerCase().split(/\W+/).filter((w) => w && !['series', 'touch', 'the'].includes(w));
+    for (let i = 0; i < catWords.length - 1; i++) {
+      const phrase = `${catWords[i]} ${catWords[i + 1]}`;
+      if (leadTextLower.includes(phrase)) return 15;
+    }
+    return 0;
+  }
+
+  function scoreProduct(p) {
+    const category = (p.category || '').toString().toLowerCase();
+    const keywords = (p.keywords || '').toString().toLowerCase();
+    const application = (p.Application || '').toString().toLowerCase();
+    const name = (p.name || '').toString().toLowerCase();
+
+    let s = 0;
+    const matchedWords = new Set();
+    let appHits = 0;
+
+    for (const w of words) {
+      let hit = false;
+      if (wordMatches(keywords, w)) { s += 6; hit = true; }
+      if (wordMatches(category, w)) { s += 5; hit = true; }
+      if (wordMatches(name, w))     { s += 3; hit = true; }
+      if (wordMatches(application, w) && appHits < 3) { s += 2; hit = true; appHits++; }
+      if (hit) matchedWords.add(w);
+    }
+
+    s += categoryPhraseBonus(category, leadText);
+
+    const haystack = `${category} ${keywords} ${application} ${name}`;
+    for (const [pattern, terms] of INTENT_RULES) {
+      if (pattern.test(leadText)) {
+        for (const t of terms) {
+          if (wordMatches(haystack, t)) s += 5;
+        }
+      }
+    }
+
+    const trimmedCategory = category.trim();
+    const isComponentCategory = COMPONENT_CATEGORY_TERMS.some((t) => trimmedCategory.includes(t));
+    if (isComponentCategory && !WANTS_COMPONENT.test(leadText)) {
+      s = s * 0.35;
+    }
+
+    return { score: s, distinctWords: matchedWords.size };
+  }
+
+  const MIN_SCORE = 9;
+  const MIN_DISTINCT_WORDS = 2;
+
+  const scored = uniqueCatalog
+    .map((p) => {
+      const { score, distinctWords } = scoreProduct(p);
+      return {
+        product_id: p.product_id,
+        name: p.name || '',
+        category: p.category || '',
+        price: parsePrice(p.price),
+        description: p.description || '',
+        keywords: p.keywords || '',
+        applications: p.Application || '',
+        datasheet_link: (p.datasheet_link || '').toString().trim(),
+        image_url: (p.image_url || '').toString().trim(),
+        brand: (p.brand || '').toString().trim(),
+        _score: Math.round(score * 10) / 10,
+        _distinctWords: distinctWords
+      };
+    })
+    .filter((p) => p._score >= MIN_SCORE && p._distinctWords >= MIN_DISTINCT_WORDS)
+    .sort((a, b) => b._score - a._score || b._distinctWords - a._distinctWords)
+    .slice(0, 5);
+
+  return {
+    ...lead,
+    matched_products: scored,
+    quotation_skipped: scored.length === 0,
+    quotation_skip_reason: scored.length === 0
+      ? 'No confident product match — may be outside catalog range'
+      : ''
+  };
+}
+
+// ------------------------------------------------------------------
+// STEP 2 — BUILD QUOTATION EMAIL  (ported from the n8n "Build Quotation Email" code node)
+// ------------------------------------------------------------------
+function buildQuotationEmail(lead) {
+  const products = lead.matched_products || [];
+
+  function inferBrand(p) {
+    if (p.brand) return p.brand;
+    const ds = (p.datasheet_link || '').toLowerCase();
+    if (ds.includes('microtouch.com')) return 'Microtouch';
+    if (ds.includes('shuttlecomputers.com') || ds.includes('filesusr.com')) return 'Shuttle';
+    const idNum = parseInt(String(p.product_id || '').replace(/\D/g, ''), 10) || 0;
+    if (idNum >= 118) return 'Uniview';
+    if (idNum >= 69) return 'Shuttle';
+    return 'Microtouch';
+  }
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+  function escapeAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+  function isValidLink(url) {
+    return typeof url === 'string' && /^https?:\/\//i.test(url.trim());
+  }
+  function formatDescription(desc, maxLen = 200) {
+    if (!desc) return '';
+    let flat = escapeHtml(desc).replace(/\n+/g, ' &bull; ').replace(/\s{2,}/g, ' ').trim();
+    if (flat.length > maxLen) flat = flat.slice(0, maxLen).trim() + '&hellip;';
+    return flat;
+  }
+  function money(n) {
+    return '&#8377;' + Number(n || 0).toLocaleString('en-IN');
+  }
+
+  const today = new Date();
+  const validUntil = new Date(today);
+  validUntil.setDate(validUntil.getDate() + 14);
+  const fmtDate = (d) => Utilities.formatDate(d, 'Asia/Kolkata', 'dd MMMM yyyy');
+
+  const quoteId = `PDL-Q-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${String(lead._row || lead.lead_id || '000').slice(-3)}`;
+
+  const COMPANY = lead.company || 'your organization';
+  const qtyPerItem = Number(lead.quantitty) > 0 ? Number(lead.quantitty) : 1;
+
+  let total = 0;
+  let totalQty = 0;
+  const brandsUsed = new Set();
+  let rowsHtml = '';
+
+  products.forEach((p, i) => {
+    const brand = inferBrand(p);
+    brandsUsed.add(brand);
+
+    const qty = qtyPerItem;
+    const unitPrice = Number(p.price || 0);
+    const amount = qty * unitPrice;
+    total += amount;
+    totalQty += qty;
+
+    const datasheetUrl = (p.datasheet_link || '').trim();
+    const hasDatasheet = isValidLink(datasheetUrl);
+    const nameBlock = hasDatasheet
+      ? `<a href="${escapeAttr(datasheetUrl)}" target="_blank" style="display:block;margin:8px 0 3px;text-decoration:none;font-family:Arial,sans-serif;"><span style="font-size:14px;font-weight:700;color:#0a1628;">${escapeHtml(p.name)}</span><span style="font-size:10.5px;font-weight:700;color:#0284c7;margin-left:6px;white-space:nowrap;">&#128196; Datasheet &rarr;</span></a>`
+      : `<p style="margin:8px 0 3px;font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#0a1628;">${escapeHtml(p.name)}</p>`;
+
+    const brandLabel = `<span style="display:inline-block;vertical-align:middle;margin-left:7px;font-family:Arial,sans-serif;font-size:9.5px;font-weight:700;color:#8b95a5;text-transform:uppercase;letter-spacing:.3px;">${escapeHtml(brand)}</span>`;
+
+    rowsHtml += `
+    <tr><td style="padding:0 0 14px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+             style="table-layout:fixed;background:#fafbfd;border:1px solid #e5e9f0;border-radius:12px;overflow:hidden;">
+        <tr>
+          <td valign="top" style="padding:14px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td>
+                  <span style="display:inline-block;background:#eff8ff;border:1px solid #bde3fb;color:#0284c7;font-family:Arial,sans-serif;font-size:9.5px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.3px;">${escapeHtml(p.category || '')}</span>
+                  ${brandLabel}
+                </td>
+                <td align="right">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right">
+                    <tr><td style="width:22px;height:22px;background:#0a1628;border-radius:50%;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:10px;font-weight:800;color:#f5c518;">${String(i + 1).padStart(2, '0')}</td></tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+            ${nameBlock}
+            <p style="margin:0 0 10px;font-family:Arial,sans-serif;font-size:11.5px;color:#6b7688;line-height:1.5;">${formatDescription(p.description)}</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="font-family:Arial,sans-serif;font-size:12px;color:#5a6478;">${qty} &times; ${money(unitPrice)}</td>
+                <td align="right" style="font-family:Arial,sans-serif;font-size:14px;font-weight:800;color:#0a1628;">${money(amount)}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>`;
+  });
+
+  let brandSection = '';
+  brandsUsed.forEach((b) => {
+    const blurb = BRAND_BLURBS[b];
+    if (!blurb) return;
+    brandSection += `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="table-layout:fixed;background:#f6f8fb;border-radius:10px;margin-bottom:10px;">
+      <tr><td style="padding:14px 16px;">
+        <p style="margin:0 0 6px;font-family:Arial,sans-serif;font-size:13px;font-weight:800;color:#0a1628;">${escapeHtml(b)}</p>
+        <p style="margin:0;font-family:Arial,sans-serif;font-size:11.5px;color:#5a6478;line-height:1.6;">${blurb}</p>
+      </td></tr>
+    </table>`;
+  });
+
+  const repsInQuote = [...brandsUsed]
+    .map((b) => ({ brand: b, ...(REP_ROUTING[b] || REP_ROUTING.Microtouch) }))
+    .filter((r) => r.email);
+
+  const primaryBrand = [...brandsUsed][0] || 'Microtouch';
+  const rep = REP_ROUTING[primaryBrand] || REP_ROUTING.Microtouch;
+
+  let repCardsHtml = '';
+  repsInQuote.forEach((r) => {
+    repCardsHtml += `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="table-layout:fixed;background:#f6f8fb;border-radius:10px;border:1px solid #e5e9f0;margin-bottom:8px;">
+      <tr>
+        <td style="padding:16px 18px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td width="46" valign="middle">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr><td style="width:40px;height:40px;background:#0a1628;border-radius:50%;
+                          text-align:center;vertical-align:middle;font-family:Arial,sans-serif;
+                          font-size:14px;font-weight:800;color:#f5c518;letter-spacing:.5px;">${escapeHtml(r.initials)}</td></tr>
+                </table>
+              </td>
+              <td valign="middle" style="padding-left:12px;font-family:Arial,sans-serif;">
+                <p style="margin:0;font-size:10.5px;color:#8b95a5;text-transform:uppercase;letter-spacing:.5px;">${escapeHtml(r.brand)} contact</p>
+                <p style="margin:2px 0 0;font-size:15px;font-weight:800;color:#0a1628;">${escapeHtml(r.name)}</p>
+                <p style="margin:0;font-size:11.5px;color:#0284c7;font-weight:600;">${escapeHtml(r.title)}</p>
+                <p style="margin:4px 0 0;font-size:12px;color:#7db8f7;word-break:break-all;overflow-wrap:anywhere;">
+                  <a href="mailto:${escapeAttr(r.email)}" style="color:#0284c7;text-decoration:none;">${escapeHtml(r.email)}</a>
+                  &nbsp;&middot;&nbsp; ${escapeHtml(r.phone)}
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>`;
+  });
+
+  const subtotalText = money(total);
+  const gstText = FOLLOWUP_CONFIG.GST_RATE ? `${money(total * FOLLOWUP_CONFIG.GST_RATE)} (extra)` : 'Applicable extra';
+  const grandTotalText = money(total);
+
+  const HTML_TEMPLATE = `<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+<title>Your Quotation from Panache Digilife</title>
+<style>
+  body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
+  table,td{mso-table-lspace:0pt;mso-table-rspace:0pt;}
+  body{margin:0;padding:0;background:#eef1f6;font-family:'Aptos','Segoe UI',Arial,sans-serif;width:100%!important;min-width:100%;}
+  body,table,td,p,a,span{word-wrap:break-word;overflow-wrap:break-word;}
+  table{max-width:100%;}
+  @media only screen and (max-width:480px){
+    .cta-cell{display:block!important;width:100%!important;padding:6px 0!important;}
+    .cta-cell a{display:block!important;text-align:center;}
+    .meta-cell{display:block!important;width:100%!important;border-right:none!important;
+               border-bottom:1px dashed #d5dde8!important;padding:6px 0!important;
+               text-align:left!important;}
+    .meta-cell:last-child{border-bottom:none!important;}
+    .stat-cell{display:block!important;width:100%!important;box-sizing:border-box!important;
+               margin-bottom:8px!important;}
+    .stat-spacer{display:none!important;}
+    .gt-label-cell{display:block!important;width:100%!important;}
+    .gt-amount-cell{display:block!important;width:100%!important;text-align:left!important;
+                    white-space:normal!important;padding-top:8px!important;font-size:24px!important;}
+    .outer-pad{padding-left:14px!important;padding-right:14px!important;}
+  }
 </style>
 </head>
-<body>
-<div class="wrap">
-
-  <!-- HEADER -->
-  <header class="app-header">
-    <div class="app-header-brand">Panache <span>Leads</span></div>
-    <div class="app-header-right">
-      <span class="conn-badge" id="connBadge">
-        <span class="conn-dot"></span>
-        <span id="connLabel">Online</span>
-      </span>
-      <span class="rep-line">
-        <strong id="repNameDisplay">—</strong>
-        <a href="#" id="switchUserLink">Switch</a>
-      </span>
-    </div>
-  </header>
-
-  <!-- SYNC BANNER -->
-  <div class="sync-banner" id="syncBanner">
-    <div class="sync-banner-row">
-      <span id="syncBannerText">Leads waiting to sync</span>
-      <button class="sync-now-btn" id="btnSyncNow">Sync now</button>
-    </div>
-    <div class="progress-track" id="syncProgressTrack">
-      <div class="progress-fill" id="syncProgressFill"></div>
-    </div>
-  </div>
-
-  <!-- STEPPER -->
-  <div class="stepper">
-    <div class="step active" id="step1">
-      <div class="step-node" id="sn1">1</div>
-      <div class="step-name">Card</div>
-    </div>
-    <div class="step" id="step2">
-      <div class="step-node" id="sn2">2</div>
-      <div class="step-name">Audio</div>
-    </div>
-    <div class="step" id="step3">
-      <div class="step-node" id="sn3">3</div>
-      <div class="step-name">Photo</div>
-    </div>
-  </div>
-
-  <!-- CARD: VISITING CARD -->
-  <div class="card is-active" id="cardCard">
-    <div class="card-head">
-      <div class="card-icon"><svg viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="14"><rect x="1" y="1" width="18" height="12" rx="2" stroke="#3E7BFA" stroke-width="1.5"/><rect x="1" y="4.5" width="18" height="2.5" fill="#3E7BFA" opacity=".4"/><rect x="3.5" y="8.5" width="5" height="1.5" rx=".75" fill="#3E7BFA"/></svg></div>
-      <div>
-        <div class="card-title">Visiting Card</div>
-        <div class="card-sub">Scan the card to fill details automatically</div>
-      </div>
-    </div>
-
-    <video id="cardVideo" autoplay playsinline></video>
-    <img class="preview" id="cardPreview" alt="Visiting card" />
-
-    <button class="btn-scan" id="btnScanCard">Scan Visiting Card</button>
-
-    <div class="status-row">
-      <span class="dot" id="cardDot"></span>
-      <span id="cardStatus">Ready to scan</span>
-    </div>
-
-    <div class="extracted" id="extractedBlock">
-      <div class="extracted-head">Extracted — please verify</div>
-      <div class="ef-row" id="efRowName"    style="display:none"><span class="ef-key">Name</span>   <span class="ef-val" id="efName"></span></div>
-      <div class="ef-row" id="efRowEmail"   style="display:none"><span class="ef-key">Email</span>  <span class="ef-val" id="efEmail"></span></div>
-      <div class="ef-row" id="efRowPhone"   style="display:none"><span class="ef-key">Phone</span>  <span class="ef-val" id="efPhone"></span></div>
-      <div class="ef-row" id="efRowCompany" style="display:none"><span class="ef-key">Company</span><span class="ef-val" id="efCompany"></span></div>
-    </div>
-  </div>
-
-  <!-- CARD: AUDIO -->
-  <div class="card" id="audioCard">
-    <div class="card-head">
-      <div class="card-icon red-bg"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect x="7" y="2" width="6" height="9" rx="3" stroke="#D65A56" stroke-width="1.5"/><path d="M4 10a6 6 0 0 0 12 0" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="16" x2="10" y2="19" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="19" x2="13" y2="19" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/></svg></div>
-      <div>
-        <div class="card-title">Conversation</div>
-        <div class="card-sub">Record while speaking with the customer</div>
-      </div>
-    </div>
-
-    <button class="btn-record" id="btnRecord">Start Recording</button>
-    <button class="btn-stop" id="btnStop">Stop Recording</button>
-
-    <div class="status-row">
-      <span class="dot" id="audioDot"></span>
-      <span id="audioStatus">Ready to record</span>
-    </div>
-    <audio id="audioPreview" controls></audio>
-  </div>
-
-  <!-- CARD: PHOTO -->
-  <div class="card" id="photoCard">
-    <div class="card-head">
-      <div class="card-icon green-bg"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="7" r="3.5" stroke="#2FA36B" stroke-width="1.5"/><path d="M3.5 17c0-3.314 2.91-6 6.5-6s6.5 2.686 6.5 6" stroke="#2FA36B" stroke-width="1.5" stroke-linecap="round"/></svg></div>
-      <div>
-        <div class="card-title">Memory Photo</div>
-        <div class="card-sub">Optional — helps identify the lead</div>
-      </div>
-    </div>
-
-    <video id="photoVideo" autoplay playsinline></video>
-    <img class="preview" id="photoPreview" alt="Customer" />
-
-    <button class="btn-photo" id="btnPhoto">Capture Photo</button>
-
-    <div class="status-row">
-      <span class="dot" id="photoDot"></span>
-      <span id="photoStatus">Ready</span>
-    </div>
-  </div>
-
-  <!-- SUBMIT -->
-  <div class="submit-wrap">
-    <button class="btn-submit" id="btnSubmit">Submit Lead</button>
-    <div class="submit-status" id="submitStatus">
-      <div class="submit-status-row">
-        <span class="dot" id="submitDot"></span>
-        <span id="submitStatusText">Uploading…</span>
-      </div>
-      <div class="submit-prog-track" id="submitProgTrack">
-        <div class="submit-prog-fill" id="submitProgFill"></div>
-      </div>
-    </div>
-  </div>
-
-</div>
-<div id="toast"></div>
-
-<script>
-/* ── SERVICE WORKER ─────────────────────────────── */
-if ("serviceWorker" in navigator)
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(console.error));
-
-const API_BASE = window.LEAD_CAPTURE_API_BASE || "https://lead-capture-system-xxfp.onrender.com";
-
-/* ── AUTH ─────────────────────────────────────── */
-const REP_KEY = "lead_capture_rep_name";
-const repName = localStorage.getItem(REP_KEY);
-if (!repName) location.href = "index.html";
-document.getElementById("repNameDisplay").textContent = repName || "";
-document.getElementById("switchUserLink").addEventListener("click", e => {
-  e.preventDefault(); localStorage.removeItem(REP_KEY); location.href = "index.html";
-});
-
-/* ── TOAST ─────────────────────────────────────── */
-const toastEl = document.getElementById("toast");
-let _tt;
-function toast(msg, type="info") {
-  toastEl.textContent = msg;
-  toastEl.className = type === "error" ? "error" : type === "success" ? "success" : "";
-  toastEl.classList.add("show");
-  clearTimeout(_tt);
-  _tt = setTimeout(() => toastEl.classList.remove("show"), 3200);
-}
-
-/* ── STEPPER ─────────────────────────────────── */
-function stepper(c, a, p) {
-  const steps = [
-    [document.getElementById("step1"), document.getElementById("sn1"), c],
-    [document.getElementById("step2"), document.getElementById("sn2"), a],
-    [document.getElementById("step3"), document.getElementById("sn3"), p],
-  ];
-  const nextIdx = steps.findIndex(([,,done]) => !done);
-  steps.forEach(([el, node, done], i) => {
-    el.className = "step" + (done ? " done" : i === nextIdx ? " active" : "");
-    node.textContent = done ? "✓" : String(i + 1);
-  });
-  // card borders
-  const cards = ["cardCard","audioCard","photoCard"];
-  cards.forEach((id, i) => {
-    const el = document.getElementById(id);
-    const done = steps[i][2];
-    const isNext = i === nextIdx;
-    el.className = "card" + (done ? " is-done" : isNext ? " is-active" : "");
-  });
-}
-stepper(false, false, false);
-
-/* ── INDEXEDDB QUEUE ─────────────────────────── */
-function openDB() {
-  return new Promise((res,rej) => {
-    const r = indexedDB.open("lead_capture_offline", 1);
-    r.onupgradeneeded = e => e.target.result.createObjectStore("queue", { keyPath:"id" });
-    r.onsuccess = e => res(e.target.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function qAdd(rec)  { const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction("queue","readwrite"); tx.objectStore("queue").put(rec); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }
-async function qAll()     { const db=await openDB(); return new Promise((res,rej)=>{ const r=db.transaction("queue","readonly").objectStore("queue").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
-async function qDel(id)   { const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction("queue","readwrite"); tx.objectStore("queue").delete(id); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }
-function uid() { return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
-
-/* ── CONNECTION ──────────────────────────────── */
-const connBadge = document.getElementById("connBadge");
-const syncBanner = document.getElementById("syncBanner");
-const syncText = document.getElementById("syncBannerText");
-const syncFill = document.getElementById("syncProgressFill");
-const syncTrack = document.getElementById("syncProgressTrack");
-
-function setConn(online) {
-  connBadge.className = "conn-badge" + (online ? "" : " offline");
-  document.getElementById("connLabel").textContent = online ? "Online" : "Offline";
-  document.body.style.overscrollBehaviorY = online ? "auto" : "contain";
-}
-async function refreshBanner() {
-  const q = await qAll().catch(()=>[]);
-  syncBanner.classList.toggle("show", q.length > 0);
-  if (q.length) syncText.textContent = `${q.length} lead${q.length>1?"s":""} waiting to sync`;
-}
-
-/* ── SEND ─────────────────────────────────────── */
-function sendToBackend(rec, onProg) {
-  return new Promise((res,rej) => {
-    const fd = new FormData();
-    fd.append("client_lead_id", rec.id);
-    fd.append("rep_name",  rec.repName||"");
-    fd.append("name",      rec.name||"");
-    fd.append("email",     rec.email||"");
-    fd.append("phone",     rec.phone||"");
-    fd.append("company",   rec.company||"");
-    fd.append("industry",  "");
-    fd.append("products",  "");
-    fd.append("quantity",  "1");
-    fd.append("audio",     rec.audioBlob, "conversation.webm");
-    fd.append("photo",     rec.photoBlob, "customer.jpg");
-    if (rec.cardBlob) fd.append("card_photo", rec.cardBlob, "visiting_card.jpg");
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API_BASE}/api/submit-lead`);
-    xhr.upload.onprogress = e => { if (e.lengthComputable && onProg) onProg(Math.round(e.loaded/e.total*100)); };
-    xhr.onload = () => { if (xhr.status>=200&&xhr.status<300){try{res(JSON.parse(xhr.responseText))}catch{res({})}}else rej(new Error(xhr.responseText||`HTTP ${xhr.status}`)); };
-    xhr.onerror = () => rej(new Error("Network error"));
-    xhr.send(fd);
-  });
-}
-
-/* ── SYNC ─────────────────────────────────────── */
-let syncing = false;
-async function syncQueue({ silent=true }={}) {
-  if (syncing||!navigator.onLine) { await refreshBanner(); return; }
-  syncing = true;
-  try {
-    const q = await qAll(), total = q.length; let sent=0;
-    for (let i=0; i<total; i++) {
-      try {
-        await sendToBackend(q[i], pct => {
-          const ov = Math.round((i+pct/100)/total*100);
-          syncFill.style.width = ov+"%";
-          syncTrack.classList.add("show");
-          syncText.textContent = `Syncing ${i+1}/${total} — ${ov}%`;
-        });
-        await qDel(q[i].id); sent++;
-        syncFill.style.width = Math.round((i+1)/total*100)+"%";
-      } catch { break; }
-    }
-    if (sent && !silent) toast(`${sent} lead${sent>1?"s":""} synced`, "success");
-  } finally {
-    syncing=false; syncTrack.classList.remove("show"); syncFill.style.width="0%";
-    await refreshBanner();
-  }
-}
-window.addEventListener("online",  () => { setConn(true);  syncQueue({silent:false}); });
-window.addEventListener("offline", () => setConn(false));
-document.getElementById("btnSyncNow").addEventListener("click", () => syncQueue({silent:false}));
-setInterval(() => syncQueue(), 20000);
-setConn(navigator.onLine); refreshBanner();
-if (navigator.onLine) syncQueue();
-
-/* ── STATE ─────────────────────────────────────── */
-let cardBlob=null, cardExtracted={}, audioBlob=null, photoBlob=null;
-
-/* ── STEP 1: CARD ───────────────────────────── */
-const btnScanCard = document.getElementById("btnScanCard");
-const cardVideo   = document.getElementById("cardVideo");
-const cardPreview = document.getElementById("cardPreview");
-const cardDot     = document.getElementById("cardDot");
-const cardSt      = document.getElementById("cardStatus");
-const extBlock    = document.getElementById("extractedBlock");
-let cardStream=null, cardArmed=false;
-
-function showExtracted(f) {
-  [["efRowName","efName",f.name],["efRowEmail","efEmail",f.email],
-   ["efRowPhone","efPhone",f.phone],["efRowCompany","efCompany",f.company]
-  ].forEach(([rid,vid,val]) => {
-    document.getElementById(rid).style.display = val ? "flex" : "none";
-    if (val) document.getElementById(vid).textContent = val;
-  });
-  if (Object.values(f).some(Boolean)) extBlock.classList.add("show");
-}
-
-btnScanCard.addEventListener("click", async () => {
-  if (!cardArmed) {
-    try {
-      cardStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-      cardVideo.srcObject = cardStream;
-      cardVideo.style.display = "block";
-      cardPreview.style.display = "none";
-      cardArmed = true;
-      btnScanCard.textContent = "Snap Card";
-      
-      
-    } catch { toast("Camera access denied.", "error"); }
-    return;
-  }
-  const cv = document.createElement("canvas");
-  cv.width=cardVideo.videoWidth; cv.height=cardVideo.videoHeight;
-  cv.getContext("2d").drawImage(cardVideo,0,0);
-  cv.toBlob(async blob => {
-    cardBlob = blob;
-    cardPreview.src = URL.createObjectURL(blob);
-    cardPreview.style.display = "block";
-    cardVideo.style.display = "none";
-    cardStream.getTracks().forEach(t=>t.stop());
-    cardArmed = false;
-    btnScanCard.className = "btn-done";
-    btnScanCard.textContent = "Rescan Card";
-    
-    cardDot.className = "dot active";
-    cardSt.textContent = "Reading card…";
-
-    if (navigator.onLine) {
-      try {
-        const fd = new FormData(); fd.append("card", blob, "card.jpg");
-        const d = await (await fetch(`${API_BASE}/api/scan-card`,{method:"POST",body:fd})).json();
-        if (d.status==="success" && d.fields) {
-          cardExtracted = d.fields;
-          const n = Object.values(d.fields).filter(Boolean).length;
-          cardDot.className = "dot done";
-          cardSt.textContent = n ? `${n} detail${n>1?"s":""} extracted — please verify` : "Card saved";
-          if (n) showExtracted(d.fields);
-        } else {
-          cardDot.className = "dot warn"; cardSt.textContent = "Card saved — text not readable";
-        }
-      } catch {
-        cardDot.className = "dot done"; cardSt.textContent = "Saved offline — uploads with lead";
-      }
-    } else {
-      cardDot.className = "dot done"; cardSt.textContent = "Card saved — uploads when online";
-    }
-    stepper(true, !!audioBlob, !!photoBlob);
-  }, "image/jpeg", 0.92);
-});
-
-/* ── STEP 2: AUDIO ──────────────────────────── */
-let mr, chunks=[];
-const btnRecord = document.getElementById("btnRecord");
-const btnStop   = document.getElementById("btnStop");
-const audioDot  = document.getElementById("audioDot");
-const audioSt   = document.getElementById("audioStatus");
-const audioPreview = document.getElementById("audioPreview");
-
-btnRecord.addEventListener("click", async () => {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    chunks=[];
-    mr = new MediaRecorder(stream);
-    mr.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); };
-    mr.onstop = () => {
-      audioBlob = new Blob(chunks,{type:"audio/webm"});
-      audioPreview.src = URL.createObjectURL(audioBlob);
-      audioPreview.style.display = "block";
-      audioDot.className = "dot done";
-      audioSt.textContent = "Recording saved";
-      stream.getTracks().forEach(t=>t.stop());
-      stepper(!!cardBlob, true, !!photoBlob);
-    };
-    mr.start();
-    audioDot.className = "dot active";
-    audioSt.textContent = "Recording…";
-    btnRecord.style.display="none"; btnStop.style.display="flex";
-  } catch { toast("Microphone access denied.", "error"); }
-});
-btnStop.addEventListener("click", () => {
-  if (mr && mr.state!=="inactive") mr.stop();
-  btnRecord.style.display="flex"; btnStop.style.display="none";
-});
-
-/* ── STEP 3: PHOTO ──────────────────────────── */
-const btnPhoto     = document.getElementById("btnPhoto");
-const photoVideo   = document.getElementById("photoVideo");
-const photoPreview = document.getElementById("photoPreview");
-const photoDot     = document.getElementById("photoDot");
-const photoSt      = document.getElementById("photoStatus");
-let photoStream=null, photoArmed=false;
-
-btnPhoto.addEventListener("click", async () => {
-  if (!photoArmed) {
-    try {
-      photoStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-      photoVideo.srcObject = photoStream;
-      photoVideo.style.display = "block";
-      photoPreview.style.display = "none";
-      photoArmed = true;
-      btnPhoto.textContent = "Snap Photo";
-      
-      
-    } catch { toast("Camera access denied.", "error"); }
-    return;
-  }
-  const cv = document.createElement("canvas");
-  cv.width=photoVideo.videoWidth; cv.height=photoVideo.videoHeight;
-  cv.getContext("2d").drawImage(photoVideo,0,0);
-  cv.toBlob(blob => {
-    photoBlob = blob;
-    photoPreview.src = URL.createObjectURL(blob);
-    photoPreview.style.display="block"; photoVideo.style.display="none";
-    photoStream.getTracks().forEach(t=>t.stop()); photoArmed=false;
-    btnPhoto.className = "btn-done";
-    btnPhoto.textContent = "Retake Photo";
-    
-    photoDot.className = "dot done"; photoSt.textContent = "Photo captured";
-    stepper(!!cardBlob, !!audioBlob, true);
-  }, "image/jpeg", 0.9);
-});
-
-/* ── SUBMIT ─────────────────────────────────── */
-const btnSubmit   = document.getElementById("btnSubmit");
-const submitSt    = document.getElementById("submitStatus");
-const submitDot   = document.getElementById("submitDot");
-const submitStTxt = document.getElementById("submitStatusText");
-const submitTrack = document.getElementById("submitProgTrack");
-const submitFill  = document.getElementById("submitProgFill");
-
-function setSubProg(pct) {
-  submitTrack.classList.add("show"); submitFill.style.width=pct+"%";
-  submitStTxt.textContent = pct < 100 ? `Uploading — ${pct}%` : "Uploaded";
-}
-
-btnSubmit.addEventListener("click", async () => {
-  if (!audioBlob) { toast("Please record the conversation first.", "error"); return; }
-  btnSubmit.disabled=true;
-
-  const rec = {
-    id: uid(), repName: repName||"",
-    name: cardExtracted.name||"", email: cardExtracted.email||"",
-    phone: cardExtracted.phone||"", company: cardExtracted.company||"",
-    audioBlob,
-    photoBlob: photoBlob || cardBlob || new Blob([],{type:"image/jpeg"}),
-    cardBlob: cardBlob||null,
-  };
-
-  // Save to the local queue immediately — this is instant (IndexedDB write).
-  // The rep sees "Lead saved" and the form resets right away so they can
-  // move to the next customer. The actual upload to the backend happens in
-  // the background via syncQueue, completely independent of this button press.
-  await qAdd(rec);
-  toast("Lead saved — moving to next customer.", "success");
-  reset();
-
-  // Kick off a background sync without awaiting it — the rep never waits
-  // for the upload. If offline the queue will drain automatically when
-  // connectivity returns via the online event listener and the 20s interval.
-  syncQueue({ silent: true });
-});
-
-/* ── RESET ──────────────────────────────────── */
-function reset() {
-  cardBlob=null; cardExtracted={};
-  cardPreview.style.display="none"; cardPreview.removeAttribute("src");
-  cardVideo.style.display="none";
-  if(cardStream){cardStream.getTracks().forEach(t=>t.stop());cardStream=null;}
-  cardArmed=false;
-  btnScanCard.className="btn-scan";
-  btnScanCard.textContent="Scan Visiting Card";
-  
-  cardDot.className="dot"; cardSt.textContent="Ready to scan";
-  extBlock.classList.remove("show");
-  ["efRowName","efRowEmail","efRowPhone","efRowCompany"].forEach(id=>document.getElementById(id).style.display="none");
-
-  audioBlob=null;
-  audioPreview.style.display="none"; audioPreview.removeAttribute("src");
-  audioDot.className="dot"; audioSt.textContent="Ready to record";
-  btnRecord.style.display="flex"; btnStop.style.display="none";
-
-  photoBlob=null;
-  photoPreview.style.display="none"; photoPreview.removeAttribute("src");
-  photoVideo.style.display="none";
-  if(photoStream){photoStream.getTracks().forEach(t=>t.stop());photoStream=null;}
-  photoArmed=false;
-  btnPhoto.className="btn-photo";
-  btnPhoto.textContent="Capture Photo";
-  
-  photoDot.className="dot"; photoSt.textContent="Ready";
-
-  btnSubmit.disabled=false; submitSt.style.display="none";
-  submitTrack.classList.remove("show"); submitFill.style.width="0%";
-  stepper(false,false,false);
-}
-</script>
+<body style="margin:0;padding:0;background:#eef1f6;">
+  <span style="display:none;max-height:0;overflow:hidden;mso-hide:all;">
+    Your quotation covering {{ITEM_COUNT}} products &mdash; Grand Total {{QUOTATION}} &mdash; Quote {{QUOTE_ID}}
+  </span>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#eef1f6;">
+    <tr>
+      <td align="center" class="outer-pad" style="padding:32px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+               style="table-layout:fixed;max-width:640px;width:100%;background:#ffffff;border-radius:16px;
+                      overflow:hidden;box-shadow:0 8px 40px rgba(10,22,40,0.14);">
+          <tr><td style="background-color:#0ea5e9;background:linear-gradient(90deg,#0284c7,#0ea5e9,#f5c518);height:5px;font-size:0;line-height:0;">&nbsp;</td></tr>
+          <tr>
+            <td style="background-color:#0a1628;background:radial-gradient(circle at 12% -30%, rgba(14,165,233,.28), transparent 55%),#0a1628;padding:34px 34px 28px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td valign="middle">
+                    <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;color:#ffffff;letter-spacing:.5px;">Panache <span style="color:#f5c518;">Digilife</span></p>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:22px;">
+                <tr>
+                  <td style="background:rgba(14,165,233,.12);border:1.5px solid rgba(14,165,233,.55);border-radius:30px;
+                             padding:8px 20px;font-size:11px;font-weight:800;color:#5ecbff;
+                             letter-spacing:2px;text-transform:uppercase;white-space:nowrap;
+                             font-family:Arial,sans-serif;">
+                    &#10022;&nbsp; Official Quotation
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f6f8fb;padding:18px 34px;border-bottom:1px dashed #c7d2e0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+                <tr>
+                  <td class="meta-cell" width="33%" style="font-family:Arial,sans-serif;border-right:1px dashed #d5dde8;">
+                    <p style="margin:0;font-size:9.5px;color:#8b95a5;text-transform:uppercase;letter-spacing:1px;">&#128203; Quote No.</p>
+                    <p style="margin:3px 0 0;font-size:15px;font-weight:800;color:#0a1628;">{{QUOTE_ID}}</p>
+                  </td>
+                  <td class="meta-cell" width="33%" align="center" style="font-family:Arial,sans-serif;border-right:1px dashed #d5dde8;">
+                    <p style="margin:0;font-size:9.5px;color:#8b95a5;text-transform:uppercase;letter-spacing:1px;">&#128197; Date</p>
+                    <p style="margin:3px 0 0;font-size:15px;font-weight:800;color:#0a1628;">{{QUOTE_DATE}}</p>
+                  </td>
+                  <td class="meta-cell" width="34%" align="right" style="font-family:Arial,sans-serif;">
+                    <p style="margin:0;font-size:9.5px;color:#8b95a5;text-transform:uppercase;letter-spacing:1px;">&#9203; Valid Until</p>
+                    <p style="margin:3px 0 0;font-size:15px;font-weight:800;color:#c0392b;">{{VALID_UNTIL}}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:34px 34px 8px;">
+              <p style="margin:0 0 6px;font-size:15px;color:#0a1628;font-weight:700;">Dear {{NAME}},</p>
+              <p style="margin:0;font-size:14px;line-height:1.7;color:#4a5568;">
+                Thank you for your interest in Panache Digilife, authorized partner and manufacturer for
+                leading global technology brands. Based on the requirements shared by
+                <strong style="color:#0a1628;">{{COMPANY}}</strong>, we are pleased to present our
+                quotation covering <strong style="color:#0a1628;">{{ITEM_COUNT}} product(s)</strong> below.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 34px 4px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+                <tr>
+                  <td class="stat-cell" width="32%" style="background:#f6f8fb;border-radius:10px;padding:14px 6px;text-align:center;">
+                    <p style="margin:0;font-size:20px;">&#128230;</p>
+                    <p style="margin:6px 0 0;font-family:Arial,sans-serif;font-size:18px;font-weight:800;color:#0a1628;">{{ITEM_COUNT}}</p>
+                    <p style="margin:2px 0 0;font-family:Arial,sans-serif;font-size:9.5px;color:#8b95a5;text-transform:uppercase;letter-spacing:.5px;">Products</p>
+                  </td>
+                  <td class="stat-spacer" width="4%"></td>
+                  <td class="stat-cell" width="32%" style="background:#f6f8fb;border-radius:10px;padding:14px 6px;text-align:center;">
+                    <p style="margin:0;font-size:20px;">&#128290;</p>
+                    <p style="margin:6px 0 0;font-family:Arial,sans-serif;font-size:18px;font-weight:800;color:#0a1628;">{{TOTAL_QTY}}</p>
+                    <p style="margin:2px 0 0;font-family:Arial,sans-serif;font-size:9.5px;color:#8b95a5;text-transform:uppercase;letter-spacing:.5px;">Total Quantity</p>
+                  </td>
+                  <td class="stat-spacer" width="4%"></td>
+                  <td class="stat-cell" width="32%" style="background:#0a1628;border-radius:10px;padding:14px 6px;text-align:center;">
+                    <p style="margin:0;font-size:20px;">&#128176;</p>
+                    <p style="margin:6px 0 0;font-family:Arial,sans-serif;font-size:16px;font-weight:800;color:#f5c518;">{{QUOTATION}}</p>
+                    <p style="margin:2px 0 0;font-family:Arial,sans-serif;font-size:9.5px;color:#7db8f7;text-transform:uppercase;letter-spacing:.5px;">Grand Total</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 34px 4px;">
+              <p style="margin:0 0 12px;font-size:11px;font-weight:700;letter-spacing:1px;
+                        text-transform:uppercase;color:#8b95a5;">Quotation Details</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                {{ITEMS_TABLE_ROWS}}
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 34px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                     style="table-layout:fixed;border:1px solid #e5e9f0;border-radius:12px;overflow:hidden;">
+                <tr>
+                  <td style="padding:14px 18px;background:#fafbfd;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;">Subtotal</td>
+                        <td align="right" style="font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;">{{SUBTOTAL}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:2px 18px 14px;background:#fafbfd;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;">GST</td>
+                        <td align="right" style="font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;">{{GST}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:22px 22px;background-color:#0a1628;background:radial-gradient(circle at 100% 0%, rgba(245,197,24,.18), transparent 60%),#0a1628;border-top:3px solid #f5c518;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td class="gt-label-cell" valign="middle">
+                          <p style="margin:0;font-family:Arial,sans-serif;font-size:11px;font-weight:800;color:#f5c518;
+                                     text-transform:uppercase;letter-spacing:1.5px;">Grand Total</p>
+                          <p style="margin:2px 0 0;font-family:Arial,sans-serif;font-size:10.5px;color:#7db8f7;">Ex-Works &middot; Inclusive of all line items</p>
+                        </td>
+                        <td class="gt-amount-cell" align="right" valign="middle" style="font-family:Arial,sans-serif;font-size:28px;font-weight:900;color:#ffffff;letter-spacing:.3px;white-space:nowrap;">{{QUOTATION}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 34px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                     style="background:#fdf3f3;border:1px solid #f3cccc;border-radius:10px;">
+                <tr>
+                  <td style="padding:13px 16px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td width="22" valign="top" style="font-size:14px;padding-top:1px;">&#129534;</td>
+                        <td style="padding-left:6px;font-family:Arial,sans-serif;">
+                          <p style="margin:0;font-size:12px;color:#8a2e2e;line-height:1.6;">
+                            <strong>Taxes are applicable and will be additional</strong> to the quoted amount
+                            above. For any queries on applicable rates or to discuss further, please reach out to us.
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 34px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                     style="background:#eff8ff;border:1.5px solid #bde3fb;border-radius:12px;">
+                <tr>
+                  <td style="padding:18px 22px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td width="28" valign="top" style="font-size:18px;padding-top:1px;">&#128230;</td>
+                        <td style="padding-left:6px;">
+                          <p style="margin:0 0 4px;font-family:Arial,sans-serif;font-size:13px;font-weight:800;
+                                    color:#0369a1;text-transform:uppercase;letter-spacing:.5px;">
+                            Delivery Terms &mdash; Ex-Works (EXW)
+                          </p>
+                          <p style="margin:0 0 10px;font-family:Arial,sans-serif;font-size:12.5px;
+                                    color:#345876;line-height:1.6;">
+                            This quotation is <strong>Ex-Works</strong> &mdash; all items will be ready for pickup
+                            at our facility below. Freight, insurance, and delivery to your location are
+                            <strong>not included</strong> in the quoted price.
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                           style="background:#ffffff;border-radius:8px;border:1px solid #d6ecfb;margin-top:4px;">
+                      <tr>
+                        <td style="padding:14px 16px;">
+                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td width="24" valign="top" style="font-size:15px;">&#128205;</td>
+                              <td style="padding-left:6px;font-family:Arial,sans-serif;">
+                                <p style="margin:0 0 2px;font-size:12px;font-weight:700;color:#0a1628;">
+                                  Pickup Location &mdash; Panache Digilife Limited
+                                </p>
+                                <p style="margin:0;font-size:12px;color:#5a6478;line-height:1.6;">
+                                  Bldg. A3, 102&ndash;108 &amp; 201&ndash;208, Babosa Industrial Park,<br/>
+                                  Mumbai&ndash;Nashik Expy, NH3, Saravali, Rajnagar,<br/>
+                                  Bhiwandi, Maharashtra 421302
+                                </p>
+                                <a href="https://maps.app.goo.gl/TobtfesEkAh7kYr38" target="_blank"
+                                   style="display:inline-block;margin-top:8px;font-family:Arial,sans-serif;
+                                          font-size:11px;font-weight:700;color:#0284c7;text-decoration:none;
+                                          border:1px solid #bde3fb;border-radius:20px;padding:5px 14px;">
+                                  View on Google Maps &rarr;
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;">
+                      <tr>
+                        <td style="background:#fff9e6;border:1px solid #f5e0a3;border-radius:8px;padding:12px 14px;">
+                          <p style="margin:0;font-family:Arial,sans-serif;font-size:12px;color:#7a5c00;line-height:1.6;">
+                            &#128666; <strong>Need it shipped instead?</strong> No problem &mdash; reply to this email or
+                            call us and we'll share the shipping charges to your location separately.
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 34px 8px;">
+              <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:1px;
+                        text-transform:uppercase;color:#8b95a5;">Terms &amp; Conditions</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td style="padding:4px 0;font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;line-height:1.6;">&bull; Delivery basis: <strong>Ex-Works (EXW)</strong> &mdash; Bhiwandi, Navi Mumbai. Pickup by customer or their appointed transporter.</td></tr>
+                <tr><td style="padding:4px 0;font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;line-height:1.6;">&bull; Prices quoted are exclusive of applicable GST, unless stated otherwise above.</td></tr>
+                <tr><td style="padding:4px 0;font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;line-height:1.6;">&bull; This quotation is valid until <strong>{{VALID_UNTIL}}</strong>. Prices may vary and are subject to change after this date.</td></tr>
+                <tr><td style="padding:4px 0;font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;line-height:1.6;">&bull; Quantities and pricing are subject to stock availability at the time of order confirmation.</td></tr>
+                <tr><td style="padding:4px 0;font-family:Arial,sans-serif;font-size:12.5px;color:#5a6478;line-height:1.6;">&bull; Payment terms as per mutually agreed purchase order.</td></tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:24px 34px 0;white-space:normal;">
+              <span style="display:inline-block;margin:0 3px 8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#16803c;font-family:Arial,sans-serif;font-size:10.5px;font-weight:700;padding:5px 12px;border-radius:20px;white-space:nowrap;">&#10003; GST Compliant</span>
+              <span style="display:inline-block;margin:0 3px 8px;background:#eff8ff;border:1px solid #bde3fb;color:#0284c7;font-family:Arial,sans-serif;font-size:10.5px;font-weight:700;padding:5px 12px;border-radius:20px;white-space:nowrap;">&#10003; Genuine Products</span>
+              <span style="display:inline-block;margin:0 3px 8px;background:#fff9e6;border:1px solid #f5e0a3;color:#92660a;font-family:Arial,sans-serif;font-size:10.5px;font-weight:700;padding:5px 12px;border-radius:20px;white-space:nowrap;">&#127981; Ex-Works</span>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:14px 34px 8px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="cta-cell" style="padding:0 5px;">
+                    <a href="mailto:{{SALES_EMAIL}}?subject=Accepting%20Quotation%20{{QUOTE_ID}}"
+                       style="display:inline-block;background:#f5c518;color:#0a1628;
+                              font-family:Arial,sans-serif;font-size:13px;font-weight:800;
+                              letter-spacing:.5px;text-decoration:none;text-transform:uppercase;
+                              padding:13px 22px;border-radius:7px;">
+                      Accept Quotation &rarr;
+                    </a>
+                  </td>
+                  <td class="cta-cell" style="padding:0 5px;">
+                    <a href="https://wa.me/{{SALES_WHATSAPP}}?text=Hi%2C%20I%27d%20like%20to%20discuss%20Quotation%20{{QUOTE_ID}}"
+                       target="_blank"
+                       style="display:inline-block;background:#25D366;color:#ffffff;
+                              font-family:Arial,sans-serif;font-size:13px;font-weight:800;
+                              letter-spacing:.5px;text-decoration:none;text-transform:uppercase;
+                              padding:13px 20px;border-radius:7px;">
+                      &#128172; WhatsApp
+                    </a>
+                  </td>
+                  <td class="cta-cell" style="padding:0 5px;">
+                    <a href="tel:{{SALES_PHONE}}"
+                       style="display:inline-block;background:#ffffff;color:#0a1628;
+                              font-family:Arial,sans-serif;font-size:13px;font-weight:700;
+                              letter-spacing:.5px;text-decoration:none;text-transform:uppercase;
+                              padding:12px 20px;border-radius:7px;border:1.5px solid #d5dbe4;">
+                      Call Us
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 34px 8px;">
+              <p style="margin:0 0 10px;font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;
+                        text-transform:uppercase;color:#8b95a5;">{{REP_HEADING}}</p>
+              {{SALES_REP_CARDS}}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 34px 8px;">
+              <p style="margin:0 0 12px;font-size:11px;font-weight:700;letter-spacing:1px;
+                        text-transform:uppercase;color:#8b95a5;">About Us</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                     style="table-layout:fixed;background:#0a1628;border-radius:10px;margin-bottom:10px;">
+                <tr><td style="padding:16px 18px;">
+                  <p style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:700;color:#ffffff;">Panache <span style="color:#f5c518;">Digilife</span></p>
+                  <p style="margin:0;font-family:Arial,sans-serif;font-size:11.5px;color:#a7bad9;line-height:1.6;">
+                    Panache Digilife Limited (NSE: PANACHE) is an India-based design-to-manufacturing
+                    technology company delivering AI hardware, telecom, smart computing, and IoT solutions.
+                    We are an authorized channel partner and contract manufacturer for globally recognized
+                    technology brands, backed by in-house engineering and a dedicated Ex-Works facility in
+                    Bhiwandi, Navi Mumbai.
+                  </p>
+                </td></tr>
+              </table>
+              {{BRAND_PROFILES_SECTION}}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:4px 34px 4px;">
+              <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:13px;font-style:italic;color:#4a5568;">
+                We look forward to working with {{COMPANY}}.
+              </p>
+              <p style="margin:8px 0 0;font-family:Arial,sans-serif;font-size:13px;color:#0a1628;font-weight:700;line-height:1.6;">
+                Warm regards,<br/>Team Panache Digilife
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 34px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="border-top:1px solid #eef1f6;font-size:0;line-height:0;">&nbsp;</td>
+                  <td width="20" align="center" style="font-size:11px;color:#f5c518;padding:0 4px;">&#10022;</td>
+                  <td style="border-top:1px solid #eef1f6;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:22px 34px 10px;">
+              <p style="margin:0 0 10px;font-family:Arial,sans-serif;font-size:13px;color:#8b95a5;">
+                &#127760; <a href="https://www.panachedigilife.com" style="color:#0284c7;text-decoration:none;">www.panachedigilife.com</a>
+              </p>
+              <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:13px;
+                        color:#c9a227;">Let's build your next product together</p>
+            </td>
+          </tr>
+          <tr><td style="background-color:#f5c518;background:linear-gradient(90deg,#f5c518,#0ea5e9,#0284c7);height:5px;font-size:0;line-height:0;">&nbsp;</td></tr>
+        </table>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;">
+          <tr>
+            <td align="center" style="padding:16px 12px 0;">
+              <p style="margin:0;font-family:Arial,sans-serif;font-size:11px;color:#9aa5b5;line-height:1.6;">
+                This is a computer-generated quotation from Panache Digilife Limited.<br/>
+                For any discrepancies, please contact us within 3 business days of receipt.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
+`;
+
+  let html = HTML_TEMPLATE
+    .replace(/{{NAME}}/g, escapeHtml(lead.name || 'Customer'))
+    .replace(/{{COMPANY}}/g, escapeHtml(COMPANY))
+    .replace(/{{ITEM_COUNT}}/g, String(products.length))
+    .replace(/{{TOTAL_QTY}}/g, `${totalQty} unit${totalQty === 1 ? '' : 's'}`)
+    .replace(/{{SUBTOTAL}}/g, subtotalText)
+    .replace(/{{GST}}/g, gstText)
+    .replace(/{{QUOTATION}}/g, grandTotalText)
+    .replace(/{{QUOTE_ID}}/g, quoteId)
+    .replace(/{{QUOTE_DATE}}/g, fmtDate(today))
+    .replace(/{{VALID_UNTIL}}/g, fmtDate(validUntil))
+    .replace(/{{SALES_EMAIL}}/g, rep.email)
+    .replace(/{{SALES_PHONE}}/g, rep.phone)
+    .replace(/{{SALES_WHATSAPP}}/g, rep.whatsapp)
+    .replace(/{{REP_HEADING}}/g, repsInQuote.length > 1 ? 'Your Points of Contact' : 'Prepared for you by')
+    .replace('{{SALES_REP_CARDS}}', repCardsHtml)
+    .replace('{{ITEMS_TABLE_ROWS}}', rowsHtml)
+    .replace('{{BRAND_PROFILES_SECTION}}', brandSection);
+
+  const productSummary = products.map((p) => p.name).join(', ');
+
+  return {
+    subject: `Your Quotation from Panache Digilife &mdash; ${quoteId} (${productSummary})`,
+    html,
+    replyTo: rep.email
+  };
+}
+
+// ------------------------------------------------------------------
+// STEP 3 &mdash; SEND EMAIL  (replaces the n8n "Send Follow-Up Email" Gmail node)
+// ------------------------------------------------------------------
+function sendQuotationEmail(lead, quotation) {
+  const to = (lead.email || '').toString().trim();
+  if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    console.warn(`Skipping send for lead_id=${lead.lead_id} — missing/invalid email address.`);
+    return false;
+  }
+
+  GmailApp.sendEmail(to, quotation.subject, 'Please view this email in an HTML-capable client.', {
+    htmlBody: quotation.html,
+    name: 'Panache Digilife',
+    replyTo: quotation.replyTo || undefined
+  });
+  return true;
+}
