@@ -477,7 +477,7 @@ video, img.preview {
       <div class="card-icon"><svg viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="14"><rect x="1" y="1" width="18" height="12" rx="2" stroke="#3E7BFA" stroke-width="1.5"/><rect x="1" y="4.5" width="18" height="2.5" fill="#3E7BFA" opacity=".4"/><rect x="3.5" y="8.5" width="5" height="1.5" rx=".75" fill="#3E7BFA"/></svg></div>
       <div>
         <div class="card-title">Visiting Card</div>
-        <div class="card-sub">Scan the card to fill details automatically</div>
+        <div class="card-sub">Snap the card — details fill in automatically</div>
       </div>
     </div>
 
@@ -526,7 +526,7 @@ video, img.preview {
     <div class="card-head">
       <div class="card-icon green-bg"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="7" r="3.5" stroke="#2FA36B" stroke-width="1.5"/><path d="M3.5 17c0-3.314 2.91-6 6.5-6s6.5 2.686 6.5 6" stroke="#2FA36B" stroke-width="1.5" stroke-linecap="round"/></svg></div>
       <div>
-        <div class="card-title">Memory Photo</div>
+        <div class="card-title">Customer Photo</div>
         <div class="card-sub">Optional — helps identify the lead</div>
       </div>
     </div>
@@ -618,8 +618,52 @@ function openDB() {
     r.onerror = () => rej(r.error);
   });
 }
-async function qAdd(rec)  { const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction("queue","readwrite"); tx.objectStore("queue").put(rec); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }
-async function qAll()     { const db=await openDB(); return new Promise((res,rej)=>{ const r=db.transaction("queue","readonly").objectStore("queue").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
+// Blobs can't be stored in IndexedDB on Safari/iOS — convert to
+// ArrayBuffer (always serialisable) before writing, restore on read.
+// blob.arrayBuffer() isn't available on older Android WebViews —
+// fall back to FileReader which works everywhere.
+function blobToAB(blob) {
+  if (!blob) return Promise.resolve(null);
+  if (typeof blob.arrayBuffer === "function") return blob.arrayBuffer();
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload  = () => res(fr.result);
+    fr.onerror = () => rej(fr.error);
+    fr.readAsArrayBuffer(blob);
+  });
+}
+function abToBlob(ab, type) { return ab ? new Blob([ab], { type }) : null; }
+
+async function qAdd(rec) {
+  const db = await openDB();
+  // Serialise all Blobs to ArrayBuffers before storing
+  const row = Object.assign({}, rec, {
+    audioBlob:  await blobToAB(rec.audioBlob),
+    audioType:  rec.audioBlob ? rec.audioBlob.type : "audio/webm",
+    photoBlob:  await blobToAB(rec.photoBlob),
+    photoType:  rec.photoBlob ? rec.photoBlob.type : "image/jpeg",
+    cardBlob:   await blobToAB(rec.cardBlob),
+    cardType:   rec.cardBlob  ? rec.cardBlob.type  : "image/jpeg",
+  });
+  return new Promise((res,rej) => {
+    const tx = db.transaction("queue","readwrite");
+    tx.objectStore("queue").put(row);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+async function qAll() {
+  const db = await openDB();
+  const rows = await new Promise((res,rej) => {
+    const r = db.transaction("queue","readonly").objectStore("queue").getAll();
+    r.onsuccess = () => res(r.result||[]); r.onerror = () => rej(r.error);
+  });
+  // Restore ArrayBuffers back to Blobs for use in FormData
+  return rows.map(row => Object.assign({}, row, {
+    audioBlob: abToBlob(row.audioBlob, row.audioType || "audio/webm"),
+    photoBlob: abToBlob(row.photoBlob, row.photoType || "image/jpeg"),
+    cardBlob:  row.cardBlob ? abToBlob(row.cardBlob, row.cardType || "image/jpeg") : null,
+  }));
+}
 async function qDel(id)   { const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction("queue","readwrite"); tx.objectStore("queue").delete(id); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }
 function uid() { return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
@@ -689,7 +733,11 @@ async function syncQueue({ silent=true }={}) {
         });
         await qDel(q[i].id); sent++;
         syncFill.style.width = Math.round((i+1)/total*100)+"%";
-      } catch { break; }
+      } catch(err) {
+        console.error("Upload failed:", err);
+        toast("Upload error — will retry automatically.", "error");
+        break;
+      }
     }
     if (sent && !silent) toast(`${sent} lead${sent>1?"s":""} synced`, "success");
   } finally {
@@ -881,17 +929,33 @@ btnSubmit.addEventListener("click", () => {
     cardBlob: cardBlob||null,
   };
 
-  // Reset instantly — before any async work — so the rep sees the
-  // form clear immediately and can start the next customer.
-  toast("Lead saved — ready for next customer.", "success");
+  // Reset the form immediately so the rep can start the next customer.
+  toast("Lead saved — uploading in background.", "success");
   reset();
 
-  // Push the queue write and upload entirely off the UI thread.
-  // The sync banner shows upload progress in the background.
-  setTimeout(() => {
-    qAdd(rec)
-      .then(() => { refreshBanner(); syncQueue({ silent: true }); })
-      .catch(console.error);
+  // Upload in background — don't await it, form is already free.
+  // Queue locally first (instant), then sync. If qAdd fails, fall
+  // back to direct send so the lead is never lost.
+  setTimeout(async () => {
+    let queued = false;
+    try {
+      await qAdd(rec);
+      queued = true;
+      refreshBanner();
+    } catch(err) {
+      console.error("qAdd failed, will try direct send:", err);
+    }
+    if (queued) {
+      syncQueue({ silent: true });
+    } else {
+      // qAdd failed (e.g. storage quota) — send directly as fallback
+      try {
+        await sendToBackend(rec, () => {});
+      } catch(err) {
+        console.error("Direct send also failed:", err);
+        toast("Upload failed — please check connection and try again.", "error");
+      }
+    }
   }, 0);
 });
 
