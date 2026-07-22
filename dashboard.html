@@ -253,6 +253,25 @@ video, img.preview {
   aspect-ratio: 4/3;
   object-fit: cover;
 }
+.video-wrap { position: relative; }
+.video-wrap video { margin-bottom: 12px; transform: scaleX(-1); }
+.video-wrap video.rear-cam { transform: none; }
+.btn-switch-cam {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(0,0,0,.5);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  z-index: 2;
+}
+.btn-switch-cam svg { width: 18px; height: 18px; }
 
 /* ── ACTION BUTTONS ──────────────────────────────────── */
 /* ── BUTTONS — exact original design ── */
@@ -531,7 +550,12 @@ video, img.preview {
       </div>
     </div>
 
-    <video id="photoVideo" autoplay playsinline></video>
+    <div class="video-wrap" id="photoVideoWrap">
+      <video id="photoVideo" autoplay playsinline muted></video>
+      <button type="button" class="btn-switch-cam" id="btnSwitchCam" aria-label="Switch camera">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17 3a1 1 0 011 1v1.05a7 7 0 015 6.95h-2a5 5 0 00-8.9-3.1L14 11H9V6l1.6 1.6A6.98 6.98 0 0117 3zM7 21a1 1 0 01-1-1v-1.05a7 7 0 01-5-6.95h2a5 5 0 008.9 3.1L10 13h5v5l-1.6-1.6A6.98 6.98 0 017 21z" fill="#fff"/></svg>
+      </button>
+    </div>
     <img class="preview" id="photoPreview" alt="Customer" />
 
     <button class="btn-photo" id="btnPhoto">Capture Photo</button>
@@ -868,15 +892,25 @@ const photoVideo   = document.getElementById("photoVideo");
 const photoPreview = document.getElementById("photoPreview");
 const photoDot     = document.getElementById("photoDot");
 const photoSt      = document.getElementById("photoStatus");
-let photoStream=null, photoArmed=false;
+const btnSwitchCam = document.getElementById("btnSwitchCam");
+let photoStream=null, photoArmed=false, photoFacingMode="user";
+
+async function startPhotoStream(facingMode) {
+  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode}});
+  if (photoStream) photoStream.getTracks().forEach(t=>t.stop());
+  photoStream = stream;
+  photoFacingMode = facingMode;
+  photoVideo.srcObject = stream;
+  photoVideo.classList.toggle("rear-cam", facingMode === "environment");
+}
 
 btnPhoto.addEventListener("click", async () => {
   if (!photoArmed) {
     try {
-      photoStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-      photoVideo.srcObject = photoStream;
+      await startPhotoStream("user");
       photoVideo.style.display = "block";
       photoPreview.style.display = "none";
+      btnSwitchCam.style.display = "flex";
       photoArmed = true;
       btnPhoto.textContent = "Snap Photo";
       
@@ -886,11 +920,18 @@ btnPhoto.addEventListener("click", async () => {
   }
   const cv = document.createElement("canvas");
   cv.width=photoVideo.videoWidth; cv.height=photoVideo.videoHeight;
-  cv.getContext("2d").drawImage(photoVideo,0,0);
+  const ctx = cv.getContext("2d");
+  if (photoFacingMode === "user") {
+    // Undo the mirrored preview so the saved photo reads naturally.
+    ctx.translate(cv.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(photoVideo,0,0);
   cv.toBlob(blob => {
     photoBlob = blob;
     photoPreview.src = URL.createObjectURL(blob);
     photoPreview.style.display="block"; photoVideo.style.display="none";
+    btnSwitchCam.style.display = "none";
     photoStream.getTracks().forEach(t=>t.stop()); photoArmed=false;
     btnPhoto.className = "btn-done";
     btnPhoto.textContent = "Retake Photo";
@@ -898,6 +939,13 @@ btnPhoto.addEventListener("click", async () => {
     photoDot.className = "dot done"; photoSt.textContent = "Photo captured";
     stepper(!!cardBlob, !!audioBlob, true);
   }, "image/jpeg", 0.9);
+});
+
+btnSwitchCam.addEventListener("click", async () => {
+  const next = photoFacingMode === "user" ? "environment" : "user";
+  try {
+    await startPhotoStream(next);
+  } catch { toast("Unable to switch camera.", "error"); }
 });
 
 /* ── SUBMIT ─────────────────────────────────── */
@@ -990,9 +1038,10 @@ function reset() {
 
   photoBlob=null;
   photoPreview.style.display="none"; photoPreview.removeAttribute("src");
-  photoVideo.style.display="none";
+  photoVideo.style.display="none"; photoVideo.classList.remove("rear-cam");
   if(photoStream){photoStream.getTracks().forEach(t=>t.stop());photoStream=null;}
-  photoArmed=false;
+  photoArmed=false; photoFacingMode="user";
+  btnSwitchCam.style.display="none";
   btnPhoto.className="btn-photo";
   btnPhoto.textContent="Capture Photo";
   
