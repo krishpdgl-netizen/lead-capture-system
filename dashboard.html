@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Quick Card Scan</title>
+<style>
+:root {
+  --navy:   #1B2A4A;
+  --accent: #3E7BFA;
+  --ice:    #EAF0FB;
+  --gray:   #5B6472;
+  --green:  #2FA36B;
+  --red:    #D65A56;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: #f5f7fa;
+  color: var(--navy);
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom, 24px);
+}
+.wrap { max-width: 480px; margin: 0 auto; padding: 0 16px 60px; }
+
+.app-header {
+  padding: 20px 0 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid #E4ECFA;
+  margin-bottom: 18px;
+}
+.app-header-brand { font-size: 16px; font-weight: 700; color: var(--navy); }
+.app-header-brand span { color: var(--accent); }
+.badge {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .3px;
+  background: #FFF6E5; color: #8A6100; border: 1px solid #F3D99A;
+  padding: 3px 9px; border-radius: 20px; text-transform: uppercase;
+}
+
+.rep-row { margin-bottom: 16px; }
+.rep-row label { display:block; font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 6px; }
+.rep-row input {
+  width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid #DCE6F7;
+  font-size: 14px; background: #fff; color: var(--navy);
+}
+
+.card {
+  background: #fff; border-radius: 16px; padding: 20px; margin-bottom: 14px;
+  box-shadow: 0 1px 4px rgba(27,42,74,.06), 0 4px 16px rgba(27,42,74,.07);
+}
+.card-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.card-sub { font-size: 12px; color: var(--gray); margin-bottom: 14px; }
+
+video, img.preview {
+  width: 100%; border-radius: 12px; display: none; margin-bottom: 12px;
+  background: #000; aspect-ratio: 4/3; object-fit: cover;
+}
+
+button {
+  border: none; border-radius: 24px; padding: 14px 16px; font-size: 14.5px;
+  font-weight: 700; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; gap: 6px; color: #fff; width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+button:disabled { opacity: .45; cursor: not-allowed; }
+.btn-scan { background: var(--navy); }
+.btn-done { background: var(--green); }
+.btn-submit { background: var(--green); margin-top: 14px; }
+
+.status-row {
+  display: flex; align-items: center; gap: 8px; margin-top: 12px;
+  font-size: 12.5px; color: var(--gray); min-height: 18px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #C7D3EA; flex-shrink: 0; }
+.dot.active { background: var(--red); animation: pulse 1s infinite; }
+.dot.done   { background: var(--green); }
+.dot.warn   { background: #F59E0B; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+#toast {
+  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%) translateY(10px);
+  background: var(--navy); color: #fff; padding: 12px 22px; border-radius: 12px;
+  font-size: 13.5px; font-weight: 500; opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s; z-index: 9999; max-width: 88vw;
+  text-align: center; box-shadow: 0 4px 20px rgba(27,42,74,.25);
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.success { background: var(--green); }
+#toast.error   { background: var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app-header">
+    <div class="app-header-brand">Quick <span>Scan</span></div>
+    <span class="badge">Temporary</span>
+  </header>
+
+  <div class="rep-row">
+    <label for="repName">Rep Name</label>
+    <input type="text" id="repName" placeholder="Your name" />
+  </div>
+
+  <div class="card">
+    <div class="card-title">Scan Listing</div>
+    <div class="card-sub">Point the camera at the page and snap it.</div>
+
+    <video id="cardVideo" autoplay playsinline muted></video>
+    <img class="preview" id="cardPreview" alt="Listing" />
+
+    <button class="btn-scan" id="btnScanCard">Scan Listing</button>
+
+    <div class="status-row">
+      <span class="dot" id="cardDot"></span>
+      <span id="cardStatus">Ready to scan</span>
+    </div>
+  </div>
+
+</div>
+<div id="toast"></div>
+
+<script>
+/* ── CONFIG ─────────────────────────────────────── */
+// Paste your deployed Apps Script Web App /exec URL here (see setup notes).
+const SHEET_WEBHOOK_URL = "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE";
+
+/* ── REP NAME (remembered locally) ─────────────── */
+const REP_KEY = "quick_scan_rep_name";
+const repInput = document.getElementById("repName");
+repInput.value = localStorage.getItem(REP_KEY) || "";
+repInput.addEventListener("input", () => localStorage.setItem(REP_KEY, repInput.value));
+
+/* ── TOAST ──────────────────────────────────────── */
+const toastEl = document.getElementById("toast");
+let _tt;
+function toast(msg, type="info") {
+  toastEl.textContent = msg;
+  toastEl.className = type === "error" ? "error" : type === "success" ? "success" : "";
+  toastEl.classList.add("show");
+  clearTimeout(_tt);
+  _tt = setTimeout(() => toastEl.classList.remove("show"), 3200);
+}
+
+/* ── CARD SCAN ──────────────────────────────────── */
+const btnScanCard = document.getElementById("btnScanCard");
+const cardVideo    = document.getElementById("cardVideo");
+const cardPreview  = document.getElementById("cardPreview");
+const cardDot      = document.getElementById("cardDot");
+const cardSt       = document.getElementById("cardStatus");
+let cardStream = null, cardArmed = false;
+
+btnScanCard.addEventListener("click", async () => {
+  if (!cardArmed) {
+    try {
+      cardStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      cardVideo.srcObject = cardStream;
+      cardVideo.style.display = "block";
+      cardPreview.style.display = "none";
+      cardArmed = true;
+      btnScanCard.textContent = "Snap Card";
+    } catch { toast("Camera access denied.", "error"); }
+    return;
+  }
+
+  const cv = document.createElement("canvas");
+  cv.width = cardVideo.videoWidth; cv.height = cardVideo.videoHeight;
+  cv.getContext("2d").drawImage(cardVideo, 0, 0);
+  cv.toBlob(async blob => {
+    cardPreview.src = URL.createObjectURL(blob);
+    cardPreview.style.display = "block";
+    cardVideo.style.display = "none";
+    cardStream.getTracks().forEach(t => t.stop());
+    cardArmed = false;
+    btnScanCard.className = "btn-done";
+    btnScanCard.textContent = "Rescan Card";
+
+    cardDot.className = "dot active";
+    cardSt.textContent = "Reading & saving…";
+
+    if (!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.startsWith("PASTE_")) {
+      toast("Sheet webhook URL not configured yet.", "error");
+      cardDot.className = "dot warn";
+      cardSt.textContent = "Not configured — see setup notes";
+      return;
+    }
+
+    try {
+      const imageBase64 = await blobToBase64(blob);
+      await saveToSheet(imageBase64, "image/jpeg");
+    } catch (err) {
+      console.error(err);
+      cardDot.className = "dot warn";
+      cardSt.textContent = "Scan failed — try rescanning";
+    }
+  }, "image/jpeg", 0.92);
+});
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result.split(",")[1]); // strip the data: prefix
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+}
+
+/* ── SAVE (Apps Script does the Gemini extraction + sheet write) ── */
+async function saveToSheet(imageBase64, mimeType) {
+  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+  const timestamp = new Date(Date.now() + IST_OFFSET).toISOString().replace("T", " ").slice(0, 19) + " IST";
+
+  try {
+    const resp = await fetch(SHEET_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" }, // avoids CORS preflight to Apps Script
+      body: JSON.stringify({
+        timestamp, rep_name: repInput.value.trim(),
+        image_base64: imageBase64, mime_type: mimeType
+      })
+    });
+    const result = await resp.json().catch(() => ({}));
+    if (result.status === "success") {
+      cardDot.className = "dot done";
+      const f = result.fields || {};
+      cardSt.textContent = f.company ? `Saved — ${f.company}` : "Saved to sheet";
+      toast("Saved to sheet.", "success");
+      setTimeout(resetScan, 1400);
+    } else {
+      cardDot.className = "dot warn";
+      cardSt.textContent = "Save failed — try rescanning";
+      toast("Save failed: " + (result.message || "unknown error"), "error");
+    }
+  } catch (err) {
+    console.error(err);
+    cardDot.className = "dot warn";
+    cardSt.textContent = "Network error — try rescanning";
+    toast("Network error — please retry.", "error");
+  }
+}
+
+function resetScan() {
+  cardPreview.style.display = "none"; cardPreview.removeAttribute("src");
+  cardVideo.style.display = "none";
+  btnScanCard.className = "btn-scan";
+  btnScanCard.textContent = "Scan Listing";
+  cardDot.className = "dot";
+  cardSt.textContent = "Ready to scan";
+}
+</script>
+</body>
+</html>
