@@ -992,27 +992,20 @@ btnSubmit.addEventListener("click", () => {
       return;
     }
 
-    // Online — send directly in background. Also queue as backup so
-    // a mid-upload connection drop doesn't lose the lead.
-    try { await qAdd(rec); refreshBanner(); } catch(e) { /* non-fatal */ }
-
+    // Single upload path — always queue, always sync via syncQueue.
+    // Never send directly AND queue at the same time — that's what
+    // caused duplicate sheet rows (both paths succeeded and wrote twice).
     try {
-      await sendToBackend(rec, pct => {
-        syncFill.style.width = pct + "%";
-        syncTrack.classList.add("show");
-        syncBanner.classList.add("show");
-        syncText.textContent = `Uploading — ${pct}%`;
-      });
-      // Upload succeeded — remove from queue if it was saved there
-      try { await qDel(rec.id); } catch(e) {}
-      syncTrack.classList.remove("show");
-      syncFill.style.width = "0%";
-      await refreshBanner();
+      await qAdd(rec);
+      refreshBanner();
+      syncQueue({ silent: true });
     } catch(err) {
-      console.error("Background send failed, lead stays in queue:", err);
-      syncTrack.classList.remove("show");
-      await refreshBanner();
-      // Lead is in the queue, will sync on next online event / 20s tick
+      console.error("qAdd failed:", err);
+      // Storage failed — last resort direct send so lead isn't lost
+      if (navigator.onLine) {
+        try { await sendToBackend(rec, () => {}); }
+        catch(e) { toast("Upload failed — please try again.", "error"); }
+      }
     }
   }, 0);
 });
