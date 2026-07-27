@@ -194,7 +194,7 @@ btnScanCard.addEventListener("click", async () => {
     } catch (err) {
       console.error(err);
       cardDot.className = "dot warn";
-      cardSt.textContent = "Scan failed — try rescanning";
+      cardSt.textContent = "Scan failed: " + (err.message || err);
     }
   }, "image/jpeg", 0.92);
 });
