@@ -37,13 +37,6 @@ body {
   padding: 3px 9px; border-radius: 20px; text-transform: uppercase;
 }
 
-.rep-row { margin-bottom: 16px; }
-.rep-row label { display:block; font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 6px; }
-.rep-row input {
-  width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid #DCE6F7;
-  font-size: 14px; background: #fff; color: var(--navy);
-}
-
 .card {
   background: #fff; border-radius: 16px; padding: 20px; margin-bottom: 14px;
   box-shadow: 0 1px 4px rgba(27,42,74,.06), 0 4px 16px rgba(27,42,74,.07);
@@ -98,11 +91,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
     <span class="badge">Temporary</span>
   </header>
 
-  <div class="rep-row">
-    <label for="repName">Rep Name</label>
-    <input type="text" id="repName" placeholder="Your name" />
-  </div>
-
   <div class="card">
     <div class="card-title">Scan Listing</div>
     <div class="card-sub">Point the camera at the page and snap it.</div>
@@ -116,6 +104,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
       <span class="dot" id="cardDot"></span>
       <span id="cardStatus">Ready to scan</span>
     </div>
+
+    <button class="btn-submit" id="btnSubmit" disabled>Submit</button>
   </div>
 
 </div>
@@ -125,12 +115,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 /* ── CONFIG ─────────────────────────────────────── */
 // Paste your deployed Apps Script Web App /exec URL here (see setup notes).
 const SHEET_WEBHOOK_URL = "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE";
-
-/* ── REP NAME (remembered locally) ─────────────── */
-const REP_KEY = "quick_scan_rep_name";
-const repInput = document.getElementById("repName");
-repInput.value = localStorage.getItem(REP_KEY) || "";
-repInput.addEventListener("input", () => localStorage.setItem(REP_KEY, repInput.value));
 
 /* ── TOAST ──────────────────────────────────────── */
 const toastEl = document.getElementById("toast");
@@ -145,11 +129,12 @@ function toast(msg, type="info") {
 
 /* ── CARD SCAN ──────────────────────────────────── */
 const btnScanCard = document.getElementById("btnScanCard");
+const btnSubmit    = document.getElementById("btnSubmit");
 const cardVideo    = document.getElementById("cardVideo");
 const cardPreview  = document.getElementById("cardPreview");
 const cardDot      = document.getElementById("cardDot");
 const cardSt       = document.getElementById("cardStatus");
-let cardStream = null, cardArmed = false;
+let cardStream = null, cardArmed = false, extractedFields = null;
 
 btnScanCard.addEventListener("click", async () => {
   if (!cardArmed) {
@@ -159,7 +144,7 @@ btnScanCard.addEventListener("click", async () => {
       cardVideo.style.display = "block";
       cardPreview.style.display = "none";
       cardArmed = true;
-      btnScanCard.textContent = "Snap Card";
+      btnScanCard.textContent = "Snap Listing";
     } catch { toast("Camera access denied.", "error"); }
     return;
   }
@@ -174,10 +159,12 @@ btnScanCard.addEventListener("click", async () => {
     cardStream.getTracks().forEach(t => t.stop());
     cardArmed = false;
     btnScanCard.className = "btn-done";
-    btnScanCard.textContent = "Rescan Card";
+    btnScanCard.textContent = "Rescan Listing";
 
     cardDot.className = "dot active";
-    cardSt.textContent = "Reading & saving…";
+    cardSt.textContent = "Reading…";
+    btnSubmit.disabled = true;
+    extractedFields = null;
 
     if (!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.startsWith("PASTE_")) {
       toast("Sheet webhook URL not configured yet.", "error");
@@ -188,7 +175,22 @@ btnScanCard.addEventListener("click", async () => {
 
     try {
       const imageBase64 = await blobToBase64(blob);
-      await saveToSheet(imageBase64, "image/jpeg");
+      const resp = await fetch(SHEET_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" }, // avoids CORS preflight to Apps Script
+        body: JSON.stringify({ action: "extract", image_base64: imageBase64, mime_type: "image/jpeg" })
+      });
+      const result = await resp.json().catch(() => ({}));
+
+      if (result.status === "success" && result.fields && Object.values(result.fields).some(Boolean)) {
+        extractedFields = result.fields;
+        cardDot.className = "dot done";
+        cardSt.textContent = result.fields.company ? `Found — ${result.fields.company}` : "Details found — ready to submit";
+        btnSubmit.disabled = false;
+      } else {
+        cardDot.className = "dot warn";
+        cardSt.textContent = "Could not read listing — try rescanning";
+      }
     } catch (err) {
       console.error(err);
       cardDot.className = "dot warn";
@@ -206,47 +208,48 @@ function blobToBase64(blob) {
   });
 }
 
-/* ── SAVE (Apps Script does the Gemini extraction + sheet write) ── */
-async function saveToSheet(imageBase64, mimeType) {
+/* ── SUBMIT (writes the already-extracted fields to the sheet) ── */
+btnSubmit.addEventListener("click", async () => {
+  if (!extractedFields) return;
+  btnSubmit.disabled = true;
+  btnSubmit.textContent = "Submitting…";
+
   const IST_OFFSET = 5.5 * 60 * 60 * 1000;
   const timestamp = new Date(Date.now() + IST_OFFSET).toISOString().replace("T", " ").slice(0, 19) + " IST";
 
   try {
     const resp = await fetch(SHEET_WEBHOOK_URL, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" }, // avoids CORS preflight to Apps Script
-      body: JSON.stringify({
-        timestamp, rep_name: repInput.value.trim(),
-        image_base64: imageBase64, mime_type: mimeType
-      })
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "submit", timestamp, fields: extractedFields })
     });
     const result = await resp.json().catch(() => ({}));
     if (result.status === "success") {
-      cardDot.className = "dot done";
-      const f = result.fields || {};
-      cardSt.textContent = f.company ? `Saved — ${f.company}` : "Saved to sheet";
       toast("Saved to sheet.", "success");
-      setTimeout(resetScan, 1400);
+      setTimeout(resetScan, 900);
     } else {
-      cardDot.className = "dot warn";
-      cardSt.textContent = "Save failed — try rescanning";
       toast("Save failed: " + (result.message || "unknown error"), "error");
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = "Submit";
     }
   } catch (err) {
     console.error(err);
-    cardDot.className = "dot warn";
-    cardSt.textContent = "Network error — try rescanning";
     toast("Network error — please retry.", "error");
+    btnSubmit.disabled = false;
+    btnSubmit.textContent = "Submit";
   }
-}
+});
 
 function resetScan() {
+  extractedFields = null;
   cardPreview.style.display = "none"; cardPreview.removeAttribute("src");
   cardVideo.style.display = "none";
   btnScanCard.className = "btn-scan";
   btnScanCard.textContent = "Scan Listing";
   cardDot.className = "dot";
   cardSt.textContent = "Ready to scan";
+  btnSubmit.disabled = true;
+  btnSubmit.textContent = "Submit";
 }
 </script>
 </body>
