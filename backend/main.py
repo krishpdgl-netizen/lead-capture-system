@@ -140,32 +140,26 @@ def summarize_audio_with_gemini(audio_bytes: bytes, mime_type: str) -> str:
         send_bytes, send_mime = audio_bytes, mime_type
 
     prompt = (
-        "You will listen to an audio clip that MAY OR MAY NOT contain a "
-        "real trade-show/event booth conversation. Many of these clips are "
-        "silent, near-silent, background noise, or too faint to make out "
-        "any words. Your first job is to judge, strictly from what is "
-        "actually audible, whether there is genuine intelligible human "
-        "speech about a product or business need — not to assume there "
-        "must be one.\n\n"
-        "If you do not clearly hear real, intelligible speech — including "
-        "cases of silence, faint room tone, static, muffled sound, or "
-        "isolated non-speech noise — respond with EXACTLY this text and "
-        "nothing else: (audio unclear — no reliable summary)\n\n"
-        "Do not guess, infer, or invent plausible-sounding details to fill "
-        "in a summary just because a summary is expected. A wrong summary "
-        "is worse than admitting the audio was unclear.\n\n"
-        "Only if you are confident real speech is present: in 5-6 "
-        "sentences, summarize what the customer is interested in, their "
-        "company or use case, and any specific needs or timelines they "
-        "mentioned. Quantity is captured separately on the form, so don't "
-        "guess a quantity from the audio unless it's clearly and "
-        "explicitly stated. Include a detail only if you actually heard it "
-        "said — never infer or assume something that wasn't mentioned. Do "
-        "not include a verbatim transcript — just the summary, as plain "
-        "text with no headers or labels.\n\n"
-        "Reminder: if there is any real doubt about whether intelligible "
-        "speech is present, respond with exactly: (audio unclear — no "
-        "reliable summary)"
+        "You will listen to an audio clip recorded at a trade-show or business "
+        "event. Your job is two things: first, decide if the clip contains real "
+        "intelligible human speech at all; second, if it does, summarise what "
+        "was discussed.\n\n"
+        "STEP 1 — IS THERE REAL SPEECH?\n"
+        "If the clip is silent, near-silent, just background noise, muffled, or "
+        "has no intelligible words at all, respond with EXACTLY this and nothing "
+        "else: (audio unclear — no reliable summary)\n\n"
+        "STEP 2 — SUMMARISE ANY REAL CONVERSATION.\n"
+        "If real speech is present, write a 4-6 sentence summary of what was "
+        "discussed. This could be anything — product interest, company background, "
+        "a general introduction, pricing discussion, a follow-up plan, small talk "
+        "that reveals context about the person or their business, or anything else "
+        "that was said. Do not limit yourself to product needs only. Capture "
+        "whatever was actually talked about.\n\n"
+        "Include: who the person is or represents (if mentioned), what they "
+        "discussed or asked about, any names, companies, timelines, or next steps "
+        "that came up. Only include what was actually said — never invent or infer "
+        "details. Plain text only, no headers or bullet points.\n\n"
+        "If there is any doubt about whether real speech is present: (audio unclear — no reliable summary)"
     )
     payload = {
         "contents": [
@@ -479,13 +473,27 @@ async def submit_lead(
     photo_bytes = await photo.read()
     card_photo_bytes = await card_photo.read() if card_photo else None
 
-    audio_filename     = f"{lead_id}_audio.webm"
-    photo_filename     = f"{lead_id}_photo.jpg"
+    audio_filename      = f"{lead_id}_audio.webm"
+    photo_filename      = f"{lead_id}_photo.jpg"
     card_photo_filename = f"{lead_id}_card.jpg" if card_photo_bytes else None
 
     transcript = summarize_audio_with_gemini(
         audio_bytes, audio.content_type or "audio/webm"
     )
+
+    # If contact fields are blank (typical for offline submissions where the
+    # phone couldn't call /api/scan-card at snap time) but a card photo was
+    # included, extract the fields server-side now so they land in the sheet.
+    fields_missing = not any([name.strip(), email.strip(), phone.strip(), company.strip()])
+    if fields_missing and card_photo_bytes:
+        print(f"[submit_lead] Contact fields blank + card photo present — running server-side extraction for lead {lead_id}")
+        extracted = extract_card_with_gemini(card_photo_bytes, "image/jpeg")
+        if extracted:
+            name        = extracted.get("name", "")        or name
+            email       = extracted.get("email", "")       or email
+            phone       = extracted.get("phone", "")       or phone
+            company     = extracted.get("company", "")     or company
+            designation = extracted.get("designation", "") or designation
 
     result = save_lead_via_apps_script(
         lead_id=lead_id,
