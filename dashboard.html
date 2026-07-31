@@ -526,7 +526,7 @@ video, img.preview {
       <div class="card-icon red-bg"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect x="7" y="2" width="6" height="9" rx="3" stroke="#D65A56" stroke-width="1.5"/><path d="M4 10a6 6 0 0 0 12 0" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="16" x2="10" y2="19" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="19" x2="13" y2="19" stroke="#D65A56" stroke-width="1.5" stroke-linecap="round"/></svg></div>
       <div>
         <div class="card-title">Conversation</div>
-        <div class="card-sub">Record while speaking with the customer (optional)</div>
+        <div class="card-sub">Record while speaking with the customer</div>
       </div>
     </div>
 
@@ -721,7 +721,7 @@ function sendToBackend(rec, onProg) {
     fd.append("company",     rec.company||"");
     fd.append("designation", rec.designation||"");
     fd.append("quantity",    "1");
-    if (rec.audioBlob) fd.append("audio", rec.audioBlob, "conversation.webm");
+    fd.append("audio",     rec.audioBlob, "conversation.webm");
     fd.append("photo",     rec.photoBlob, "customer.jpg");
     if (rec.cardBlob) fd.append("card_photo", rec.cardBlob, "visiting_card.jpg");
     const xhr = new XMLHttpRequest();
@@ -962,6 +962,7 @@ function setSubProg(pct) {
 }
 
 btnSubmit.addEventListener("click", () => {
+  if (!audioBlob) { toast("Please record the conversation first.", "error"); return; }
   btnSubmit.disabled = true;
 
   const rec = {
