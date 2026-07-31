@@ -354,9 +354,9 @@ def save_lead_via_apps_script(
     company: str,
     designation: str,
     quantity: str,
-    audio_bytes: bytes,
-    audio_filename: str,
-    audio_mime_type: str,
+    audio_bytes: Optional[bytes],
+    audio_filename: Optional[str],
+    audio_mime_type: Optional[str],
     photo_bytes: bytes,
     photo_filename: str,
     photo_mime_type: str,
@@ -385,14 +385,17 @@ def save_lead_via_apps_script(
         "company": company,
         "designation": designation,
         "quantity": quantity,
-        "audio_base64": base64.b64encode(audio_bytes).decode("utf-8"),
-        "audio_filename": audio_filename,
-        "audio_mime_type": audio_mime_type,
         "photo_base64": base64.b64encode(photo_bytes).decode("utf-8"),
         "photo_filename": photo_filename,
         "photo_mime_type": photo_mime_type,
         "transcript": transcript,
     }
+
+    # Audio is optional — only include it when the rep recorded the conversation
+    if audio_bytes and audio_filename:
+        payload["audio_base64"] = base64.b64encode(audio_bytes).decode("utf-8")
+        payload["audio_filename"] = audio_filename
+        payload["audio_mime_type"] = audio_mime_type
 
     # Card photo is optional — only include it when the rep scanned a card
     if card_photo_bytes and card_photo_filename:
@@ -460,7 +463,7 @@ async def submit_lead(
     company: str = Form(""),
     designation: str = Form(""),
     quantity: Optional[str] = Form("1"),
-    audio: UploadFile = File(...),
+    audio: Optional[UploadFile] = File(None),
     photo: UploadFile = File(...),
     card_photo: Optional[UploadFile] = File(None),
     client_lead_id: Optional[str] = Form(None),
@@ -469,16 +472,17 @@ async def submit_lead(
     IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
     timestamp = (datetime.datetime.now(datetime.timezone.utc) + IST_OFFSET).strftime("%Y-%m-%d %H:%M:%S IST")
 
-    audio_bytes = await audio.read()
+    audio_bytes = await audio.read() if audio else None
     photo_bytes = await photo.read()
     card_photo_bytes = await card_photo.read() if card_photo else None
 
-    audio_filename      = f"{lead_id}_audio.webm"
-    photo_filename      = f"{lead_id}_photo.jpg"
-    card_photo_filename = f"{lead_id}_card.jpg" if card_photo_bytes else None
+    audio_filename       = f"{lead_id}_audio.webm" if audio_bytes else None
+    photo_filename       = f"{lead_id}_photo.jpg"
+    card_photo_filename  = f"{lead_id}_card.jpg" if card_photo_bytes else None
 
-    transcript = summarize_audio_with_gemini(
-        audio_bytes, audio.content_type or "audio/webm"
+    transcript = (
+        summarize_audio_with_gemini(audio_bytes, audio.content_type or "audio/webm")
+        if audio_bytes else "(No recording provided)"
     )
 
     # If contact fields are blank (typical for offline submissions where the
@@ -507,7 +511,7 @@ async def submit_lead(
         quantity=quantity,
         audio_bytes=audio_bytes,
         audio_filename=audio_filename,
-        audio_mime_type=audio.content_type or "audio/webm",
+        audio_mime_type=(audio.content_type or "audio/webm") if audio else None,
         photo_bytes=photo_bytes,
         photo_filename=photo_filename,
         photo_mime_type=photo.content_type or "image/jpeg",
